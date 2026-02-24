@@ -3,14 +3,24 @@ import SwiftUI
 struct PopoverView: View {
     let service: CopilotService
     @AppStorage("showPercentageInMenuBar") private var showPercentage = false
+    @State private var authService = GitHubAuthService()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             header
             Divider()
 
-            if let error = service.error {
+            if service.needsAuth {
+                SetupView(authService: authService) {
+                    authService.reset()
+                    Task { await service.refresh() }
+                }
+                Divider()
+                quitButton
+            } else if let error = service.error {
                 errorView(error)
+                Divider()
+                quitButton
             } else if let usage = service.usage {
                 usageSection(usage)
                 Divider()
@@ -223,6 +233,19 @@ struct PopoverView: View {
             .controlSize(.small)
         }
     }
+
+    // MARK: - Quit Button
+
+    private var quitButton: some View {
+        HStack {
+            Spacer()
+            Button("Quit") {
+                NSApplication.shared.terminate(nil)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+    }
 }
 
 // MARK: - Popover Progress Bar
@@ -322,4 +345,8 @@ struct PopoverProgressBar: View {
 
 #Preview("Error") {
     PopoverView(service: .previewError)
+}
+
+#Preview("Needs Auth") {
+    PopoverView(service: .previewNeedsAuth)
 }

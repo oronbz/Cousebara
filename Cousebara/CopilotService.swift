@@ -112,6 +112,8 @@ final class CopilotService {
     var lastUpdated: Date?
     var error: String?
     var isLoading = false
+    /// True when authentication is needed (token file missing or API returned 401/403).
+    var needsAuth = false
 
     private var refreshTimer: Timer?
     private let refreshInterval: TimeInterval = 15 * 60 // 15 minutes
@@ -129,7 +131,8 @@ final class CopilotService {
         plan: String? = "enterprise",
         resetDate: String? = "2026-03-01",
         error: String? = nil,
-        isLoading: Bool = false
+        isLoading: Bool = false,
+        needsAuth: Bool = false
     ) {
         self.skipNetwork = true
         self.usage = usage
@@ -138,6 +141,7 @@ final class CopilotService {
         self.resetDate = resetDate
         self.error = error
         self.isLoading = isLoading
+        self.needsAuth = needsAuth
         self.lastUpdated = Date()
     }
 
@@ -170,8 +174,13 @@ final class CopilotService {
             resetDate = response.quotaResetDate
             lastUpdated = Date()
             error = nil
+            needsAuth = false
+        } catch let copilotError as CopilotError where copilotError.isAuthError {
+            self.error = copilotError.localizedDescription
+            self.needsAuth = true
         } catch {
             self.error = error.localizedDescription
+            self.needsAuth = false
         }
     }
 
@@ -179,6 +188,11 @@ final class CopilotService {
 
     private func readToken() throws -> String {
         let path = NSString("~/.config/github-copilot/apps.json").expandingTildeInPath
+
+        guard FileManager.default.fileExists(atPath: path) else {
+            throw CopilotError.tokenFileMissing
+        }
+
         let data = try Data(contentsOf: URL(fileURLWithPath: path))
         let apps = try JSONDecoder().decode([String: CopilotApp].self, from: data)
         guard let firstApp = apps.values.first else {
@@ -198,7 +212,15 @@ final class CopilotService {
 
         let (data, response) = try await URLSession.shared.data(for: request)
 
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw CopilotError.apiError
+        }
+
+        if httpResponse.statusCode == 401 || httpResponse.statusCode == 403 {
+            throw CopilotError.authenticationFailed
+        }
+
+        guard httpResponse.statusCode == 200 else {
             throw CopilotError.apiError
         }
 
@@ -208,14 +230,26 @@ final class CopilotService {
 
 enum CopilotError: LocalizedError {
     case noToken
+    case tokenFileMissing
+    case authenticationFailed
     case invalidURL
     case apiError
 
     var errorDescription: String? {
         switch self {
         case .noToken: "No Copilot OAuth token found in ~/.config/github-copilot/apps.json"
+        case .tokenFileMissing: "GitHub Copilot token file not found. Sign in to create it."
+        case .authenticationFailed: "Authentication failed. Your token may be expired or revoked."
         case .invalidURL: "Invalid API URL"
         case .apiError: "GitHub API request failed"
+        }
+    }
+
+    /// Whether this error indicates the user needs to (re-)authenticate.
+    var isAuthError: Bool {
+        switch self {
+        case .tokenFileMissing, .noToken, .authenticationFailed: true
+        case .invalidURL, .apiError: false
         }
     }
 }
@@ -285,5 +319,10 @@ extension CopilotService {
     static let previewError = CopilotService(
         usage: nil,
         error: "No Copilot OAuth token found in ~/.config/github-copilot/apps.json"
+    )
+    static let previewNeedsAuth = CopilotService(
+        usage: nil,
+        error: "GitHub Copilot token file not found. Sign in to create it.",
+        needsAuth: true
     )
 }

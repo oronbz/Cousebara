@@ -4,9 +4,12 @@ struct MenuBarLabel: View {
     let usage: QuotaSnapshot?
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 3) {
             Image("CopilotIcon")
                 .renderingMode(.template)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 18, height: 18)
 
             if let usage {
                 MenuBarProgressBar(usage: usage)
@@ -18,68 +21,71 @@ struct MenuBarLabel: View {
 struct MenuBarProgressBar: View {
     let usage: QuotaSnapshot
 
-    private let barWidth: CGFloat = 36
-    private let barHeight: CGFloat = 10
-    private let cornerRadius: CGFloat = 2
+    private let barWidth: CGFloat = 6
+    private let barHeight: CGFloat = 16
+    private let cornerRadius: CGFloat = 1.5
 
     var body: some View {
-        ZStack(alignment: .leading) {
-            if usage.isOverLimit {
-                overLimitBar
-            } else {
-                normalBar
-            }
-        }
-        .frame(width: totalWidth, height: barHeight)
-    }
-
-    private var totalWidth: CGFloat {
-        if usage.isOverLimit {
-            let overshoot = min(usage.overageFraction, 1.0) * barWidth
-            return barWidth + overshoot
-        }
-        return barWidth
-    }
-
-    private var normalBar: some View {
-        ZStack(alignment: .leading) {
+        ZStack(alignment: .bottom) {
             // Background track
             RoundedRectangle(cornerRadius: cornerRadius)
                 .fill(Color.primary.opacity(0.2))
-                .frame(width: barWidth, height: barHeight)
+                .frame(width: barWidth, height: totalHeight)
 
-            // Filled portion
-            let filledWidth = CGFloat(max(0, usage.normalFraction * barWidth))
+            if usage.isOverLimit {
+                overLimitFill
+            } else {
+                normalFill
+            }
+        }
+        .frame(width: barWidth, height: totalHeight)
+    }
+
+    private var totalHeight: CGFloat {
+        if usage.isOverLimit {
+            let overshoot = min(usage.overageFraction, 1.0) * barHeight
+            return barHeight + overshoot
+        }
+        return barHeight
+    }
+
+    // MARK: - Normal
+
+    private var normalFill: some View {
+        let filledHeight = CGFloat(usage.normalFraction) * barHeight
+        return VStack(spacing: 0) {
+            Spacer(minLength: 0)
             RoundedRectangle(cornerRadius: cornerRadius)
                 .fill(normalColor)
-                .frame(width: filledWidth, height: barHeight)
+                .frame(width: barWidth, height: filledHeight)
         }
     }
 
-    private var overLimitBar: some View {
-        HStack(spacing: 0) {
-            // Full normal portion (100%)
-            RoundedRectangle(cornerRadius: cornerRadius)
-                .fill(Color.orange)
-                .frame(width: barWidth, height: barHeight)
-                .clipShape(UnevenRoundedRectangle(
-                    topLeadingRadius: cornerRadius,
-                    bottomLeadingRadius: cornerRadius,
-                    bottomTrailingRadius: 0,
-                    topTrailingRadius: 0
-                ))
+    // MARK: - Over Limit
 
-            // Red overshoot portion
-            let overshootWidth = CGFloat(min(usage.overageFraction, 1.0) * barWidth)
-            RoundedRectangle(cornerRadius: cornerRadius)
-                .fill(Color.red)
-                .frame(width: overshootWidth, height: barHeight)
-                .clipShape(UnevenRoundedRectangle(
-                    topLeadingRadius: 0,
-                    bottomLeadingRadius: 0,
-                    bottomTrailingRadius: cornerRadius,
-                    topTrailingRadius: cornerRadius
-                ))
+    private var overLimitFill: some View {
+        let overshootHeight = CGFloat(min(usage.overageFraction, 1.0)) * barHeight
+
+        return VStack(spacing: 0) {
+            // Red overshoot portion (top)
+            UnevenRoundedRectangle(
+                topLeadingRadius: cornerRadius,
+                bottomLeadingRadius: 0,
+                bottomTrailingRadius: 0,
+                topTrailingRadius: cornerRadius
+            )
+            .fill(Color.red)
+            .frame(width: barWidth, height: overshootHeight)
+
+            // Orange normal portion (bottom, full)
+            UnevenRoundedRectangle(
+                topLeadingRadius: 0,
+                bottomLeadingRadius: cornerRadius,
+                bottomTrailingRadius: cornerRadius,
+                topTrailingRadius: 0
+            )
+            .fill(Color.orange)
+            .frame(width: barWidth, height: barHeight)
         }
     }
 
@@ -133,14 +139,14 @@ struct MenuBarProgressBar: View {
 }
 
 #Preview("All States") {
-    VStack(alignment: .leading, spacing: 12) {
+    HStack(spacing: 16) {
         LabeledContent("30%") { MenuBarLabel(usage: .lowUsage) }
         LabeledContent("65%") { MenuBarLabel(usage: .mediumUsage) }
         LabeledContent("90%") { MenuBarLabel(usage: .highUsage) }
         LabeledContent("100%") { MenuBarLabel(usage: .atLimit) }
         LabeledContent("110%") { MenuBarLabel(usage: .slightlyOver) }
         LabeledContent("154%") { MenuBarLabel(usage: .overLimit) }
-        LabeledContent("No data") { MenuBarLabel(usage: nil) }
+        LabeledContent("N/A") { MenuBarLabel(usage: nil) }
     }
     .padding()
 }

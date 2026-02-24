@@ -12,64 +12,89 @@ struct MenuBarLabel: View {
 // MARK: - Combined menu bar image renderer
 
 /// Renders the entire menu bar label (icon + progress bar) as a single
-/// NSImage. MenuBarExtra labels only reliably display a single Image —
-/// HStacks and multiple Images are silently ignored.
+/// NSImage using the template image approach. macOS automatically tints
+/// template images white on dark menu bars and black on light menu bars.
+/// All visual differentiation is expressed through alpha values only.
 enum MenuBarImageRenderer {
     private static let iconSize: CGFloat = 16
-    private static let barWidth: CGFloat = 5
-    private static let barHeight: CGFloat = 12
-    private static let barCornerRadius: CGFloat = 1.5
+    private static let barWidth: CGFloat = 8
+    private static let barHeight: CGFloat = 16
+    private static let barCornerRadius: CGFloat = 1
     private static let spacing: CGFloat = 2
-    /// Maximum overshoot height so the bar doesn't exceed menu bar bounds
-    private static let maxOvershoot: CGFloat = 4
+    private static let scale: CGFloat = 2
+
+    /// Inner padding between the track background and the fill
+    private static let fillPadding: CGFloat = 1
+    private static let fillCornerRadius: CGFloat = 0
+
+    // Alpha values for the monochrome template image
+    private static let trackAlpha: CGFloat = 0.30
+    private static let fillAlpha: CGFloat = 1.0
 
     static func render(usage: QuotaSnapshot?) -> NSImage {
-        let barTotalHeight: CGFloat
-        if let usage, usage.isOverLimit {
-            let overshoot = min(min(CGFloat(usage.overageFraction), 1.0) * barHeight, maxOvershoot)
-            barTotalHeight = barHeight + overshoot
-        } else {
-            barTotalHeight = barHeight
-        }
-
         let hasBar = usage != nil
         let totalWidth = iconSize + (hasBar ? spacing + barWidth : 0)
         let totalHeight = iconSize // fixed to icon size — bar is vertically centered within
 
-        let image = NSImage(size: NSSize(width: totalWidth, height: totalHeight), flipped: false) { _ in
-            // Draw icon tinted for menu bar (white in dark mode)
-            if let copilotIcon = NSImage(named: "CopilotIcon") {
-                let tinted = tintedImage(copilotIcon, color: .white)
-                // Aspect-fit the icon into the iconSize square
-                let iconAspect = copilotIcon.size.width / copilotIcon.size.height
-                let drawWidth: CGFloat
-                let drawHeight: CGFloat
-                if iconAspect > 1 {
-                    // Wider than tall
-                    drawWidth = iconSize
-                    drawHeight = iconSize / iconAspect
-                } else {
-                    // Taller than wide
-                    drawHeight = iconSize
-                    drawWidth = iconSize * iconAspect
+        let image = NSImage(size: NSSize(width: totalWidth, height: totalHeight))
+
+        // Create a 2x bitmap representation for crisp rendering on Retina
+        if let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: Int(totalWidth * scale),
+            pixelsHigh: Int(totalHeight * scale),
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ) {
+            rep.size = NSSize(width: totalWidth, height: totalHeight) // points
+            image.addRepresentation(rep)
+
+            NSGraphicsContext.saveGraphicsState()
+            if let ctx = NSGraphicsContext(bitmapImageRep: rep) {
+                NSGraphicsContext.current = ctx
+
+                let baseColor = NSColor.black
+
+                // Draw icon
+                if let copilotIcon = NSImage(named: "CopilotIcon") {
+                    let tinted = tintedImage(copilotIcon, color: baseColor.withAlphaComponent(fillAlpha))
+                    // Aspect-fit the icon into the iconSize square
+                    let iconAspect = copilotIcon.size.width / copilotIcon.size.height
+                    let drawWidth: CGFloat
+                    let drawHeight: CGFloat
+                    if iconAspect > 1 {
+                        drawWidth = iconSize
+                        drawHeight = iconSize / iconAspect
+                    } else {
+                        drawHeight = iconSize
+                        drawWidth = iconSize * iconAspect
+                    }
+                    let iconX = (iconSize - drawWidth) / 2
+                    let iconY = (totalHeight - drawHeight) / 2
+                    tinted.draw(in: NSRect(x: iconX, y: iconY, width: drawWidth, height: drawHeight))
                 }
-                let iconX = (iconSize - drawWidth) / 2
-                let iconY = (totalHeight - drawHeight) / 2
-                let iconRect = NSRect(x: iconX, y: iconY, width: drawWidth, height: drawHeight)
-                tinted.draw(in: iconRect)
-            }
 
-            // Draw progress bar
-            if let usage {
-                let barX = iconSize + spacing
-                let barY = (totalHeight - barTotalHeight) / 2
-                drawProgressBar(at: NSPoint(x: barX, y: barY), usage: usage, barTotalHeight: barTotalHeight)
+                // Draw progress bar
+                if let usage {
+                    let barX = iconSize + spacing
+                    let barY = (totalHeight - barHeight) / 2
+                    drawProgressBar(
+                        at: NSPoint(x: barX, y: barY),
+                        usage: usage,
+                        baseColor: baseColor
+                    )
+                }
             }
-
-            return true
+            NSGraphicsContext.restoreGraphicsState()
         }
-        // Must NOT be template so colors are preserved
-        image.isTemplate = false
+
+        // Template image — macOS auto-tints based on menu bar appearance
+        image.isTemplate = true
         return image
     }
 
@@ -84,49 +109,42 @@ enum MenuBarImageRenderer {
         return tinted
     }
 
-    private static func drawProgressBar(at origin: NSPoint, usage: QuotaSnapshot, barTotalHeight: CGFloat) {
+    private static func drawProgressBar(at origin: NSPoint, usage: QuotaSnapshot, baseColor: NSColor) {
         // Background track
-        let bgRect = NSRect(x: origin.x, y: origin.y, width: barWidth, height: barTotalHeight)
+        let bgRect = NSRect(x: origin.x, y: origin.y, width: barWidth, height: barHeight)
         let bgPath = NSBezierPath(roundedRect: bgRect, xRadius: barCornerRadius, yRadius: barCornerRadius)
-        NSColor.white.withAlphaComponent(0.25).setFill()
+        baseColor.withAlphaComponent(trackAlpha).setFill()
         bgPath.fill()
 
+        // Inner fill area (inset by padding on all sides)
+        let innerRect = bgRect.insetBy(dx: fillPadding, dy: fillPadding)
+        let innerHeight = innerRect.height
+
+        // Compute fill height — clamped to inner area
+        let fillFraction: CGFloat
         if usage.isOverLimit {
-            // Orange normal portion (bottom, full barHeight)
-            let orangeRect = NSRect(x: origin.x, y: origin.y, width: barWidth, height: barHeight)
-            let orangePath = NSBezierPath(roundedRect: orangeRect, xRadius: barCornerRadius, yRadius: barCornerRadius)
-            NSColor.orange.setFill()
-            orangePath.fill()
-
-            // Red overshoot portion (top)
-            let overshootHeight = barTotalHeight - barHeight
-            if overshootHeight > 0 {
-                let redRect = NSRect(x: origin.x, y: origin.y + barHeight, width: barWidth, height: overshootHeight)
-                let redPath = NSBezierPath(roundedRect: redRect, xRadius: barCornerRadius, yRadius: barCornerRadius)
-                NSColor.red.setFill()
-                redPath.fill()
-            }
+            fillFraction = 1.0 // always full when over limit
         } else {
-            // Normal fill from bottom
-            let filledHeight = CGFloat(usage.normalFraction) * barHeight
-            if filledHeight > 0 {
-                let fillRect = NSRect(x: origin.x, y: origin.y, width: barWidth, height: filledHeight)
-                let fillPath = NSBezierPath(roundedRect: fillRect, xRadius: barCornerRadius, yRadius: barCornerRadius)
-                normalColor(for: usage).setFill()
-                fillPath.fill()
-            }
+            fillFraction = CGFloat(usage.normalFraction)
         }
-    }
 
-    private static func normalColor(for usage: QuotaSnapshot) -> NSColor {
-        let fraction = usage.normalFraction
-        if fraction < 0.6 {
-            return .systemGreen
-        } else if fraction < 0.85 {
-            return .systemYellow
-        } else {
-            return .systemOrange
-        }
+        let filledHeight = fillFraction * innerHeight
+        guard filledHeight > 0 else { return }
+
+        let fillRect = NSRect(
+            x: innerRect.origin.x,
+            y: innerRect.origin.y,
+            width: innerRect.width,
+            height: filledHeight
+        )
+
+        // Clip to the inner rounded rect so fill stays within padded bounds
+        NSGraphicsContext.current?.cgContext.saveGState()
+        let innerPath = NSBezierPath(roundedRect: innerRect, xRadius: fillCornerRadius, yRadius: fillCornerRadius)
+        innerPath.addClip()
+        baseColor.withAlphaComponent(fillAlpha).setFill()
+        NSBezierPath(rect: fillRect).fill()
+        NSGraphicsContext.current?.cgContext.restoreGState()
     }
 }
 

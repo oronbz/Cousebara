@@ -1,103 +1,142 @@
+import AppKit
 import SwiftUI
 
 struct MenuBarLabel: View {
     let usage: QuotaSnapshot?
 
     var body: some View {
-        HStack(spacing: 3) {
-            Image("CopilotIcon")
-                .renderingMode(.template)
-                .resizable()
-                .scaledToFit()
-                .frame(width: 18, height: 18)
+        Image(nsImage: MenuBarImageRenderer.render(usage: usage))
+    }
+}
 
-            if let usage {
-                MenuBarProgressBar(usage: usage)
+// MARK: - Combined menu bar image renderer
+
+/// Renders the entire menu bar label (icon + progress bar) as a single
+/// NSImage. MenuBarExtra labels only reliably display a single Image —
+/// HStacks and multiple Images are silently ignored.
+enum MenuBarImageRenderer {
+    private static let iconSize: CGFloat = 16
+    private static let barWidth: CGFloat = 5
+    private static let barHeight: CGFloat = 12
+    private static let barCornerRadius: CGFloat = 1.5
+    private static let spacing: CGFloat = 2
+    /// Maximum overshoot height so the bar doesn't exceed menu bar bounds
+    private static let maxOvershoot: CGFloat = 4
+
+    static func render(usage: QuotaSnapshot?) -> NSImage {
+        let barTotalHeight: CGFloat
+        if let usage, usage.isOverLimit {
+            let overshoot = min(min(CGFloat(usage.overageFraction), 1.0) * barHeight, maxOvershoot)
+            barTotalHeight = barHeight + overshoot
+        } else {
+            barTotalHeight = barHeight
+        }
+
+        let hasBar = usage != nil
+        let totalWidth = iconSize + (hasBar ? spacing + barWidth : 0)
+        let totalHeight = iconSize // fixed to icon size — bar is vertically centered within
+
+        let image = NSImage(size: NSSize(width: totalWidth, height: totalHeight), flipped: false) { _ in
+            // Draw icon tinted for menu bar (white in dark mode)
+            if let copilotIcon = NSImage(named: "CopilotIcon") {
+                let tinted = tintedImage(copilotIcon, color: .white)
+                // Aspect-fit the icon into the iconSize square
+                let iconAspect = copilotIcon.size.width / copilotIcon.size.height
+                let drawWidth: CGFloat
+                let drawHeight: CGFloat
+                if iconAspect > 1 {
+                    // Wider than tall
+                    drawWidth = iconSize
+                    drawHeight = iconSize / iconAspect
+                } else {
+                    // Taller than wide
+                    drawHeight = iconSize
+                    drawWidth = iconSize * iconAspect
+                }
+                let iconX = (iconSize - drawWidth) / 2
+                let iconY = (totalHeight - drawHeight) / 2
+                let iconRect = NSRect(x: iconX, y: iconY, width: drawWidth, height: drawHeight)
+                tinted.draw(in: iconRect)
             }
+
+            // Draw progress bar
+            if let usage {
+                let barX = iconSize + spacing
+                let barY = (totalHeight - barTotalHeight) / 2
+                drawProgressBar(at: NSPoint(x: barX, y: barY), usage: usage, barTotalHeight: barTotalHeight)
+            }
+
+            return true
+        }
+        // Must NOT be template so colors are preserved
+        image.isTemplate = false
+        return image
+    }
+
+    /// Creates a copy of the image filled with the given color, preserving alpha.
+    private static func tintedImage(_ image: NSImage, color: NSColor) -> NSImage {
+        let tinted = NSImage(size: image.size, flipped: false) { rect in
+            image.draw(in: rect)
+            color.set()
+            rect.fill(using: .sourceAtop)
+            return true
+        }
+        return tinted
+    }
+
+    private static func drawProgressBar(at origin: NSPoint, usage: QuotaSnapshot, barTotalHeight: CGFloat) {
+        // Background track
+        let bgRect = NSRect(x: origin.x, y: origin.y, width: barWidth, height: barTotalHeight)
+        let bgPath = NSBezierPath(roundedRect: bgRect, xRadius: barCornerRadius, yRadius: barCornerRadius)
+        NSColor.white.withAlphaComponent(0.25).setFill()
+        bgPath.fill()
+
+        if usage.isOverLimit {
+            // Orange normal portion (bottom, full barHeight)
+            let orangeRect = NSRect(x: origin.x, y: origin.y, width: barWidth, height: barHeight)
+            let orangePath = NSBezierPath(roundedRect: orangeRect, xRadius: barCornerRadius, yRadius: barCornerRadius)
+            NSColor.orange.setFill()
+            orangePath.fill()
+
+            // Red overshoot portion (top)
+            let overshootHeight = barTotalHeight - barHeight
+            if overshootHeight > 0 {
+                let redRect = NSRect(x: origin.x, y: origin.y + barHeight, width: barWidth, height: overshootHeight)
+                let redPath = NSBezierPath(roundedRect: redRect, xRadius: barCornerRadius, yRadius: barCornerRadius)
+                NSColor.red.setFill()
+                redPath.fill()
+            }
+        } else {
+            // Normal fill from bottom
+            let filledHeight = CGFloat(usage.normalFraction) * barHeight
+            if filledHeight > 0 {
+                let fillRect = NSRect(x: origin.x, y: origin.y, width: barWidth, height: filledHeight)
+                let fillPath = NSBezierPath(roundedRect: fillRect, xRadius: barCornerRadius, yRadius: barCornerRadius)
+                normalColor(for: usage).setFill()
+                fillPath.fill()
+            }
+        }
+    }
+
+    private static func normalColor(for usage: QuotaSnapshot) -> NSColor {
+        let fraction = usage.normalFraction
+        if fraction < 0.6 {
+            return .systemGreen
+        } else if fraction < 0.85 {
+            return .systemYellow
+        } else {
+            return .systemOrange
         }
     }
 }
 
+// MARK: - SwiftUI wrapper for previews
+
 struct MenuBarProgressBar: View {
     let usage: QuotaSnapshot
 
-    private let barWidth: CGFloat = 6
-    private let barHeight: CGFloat = 16
-    private let cornerRadius: CGFloat = 1.5
-
     var body: some View {
-        ZStack(alignment: .bottom) {
-            // Background track
-            RoundedRectangle(cornerRadius: cornerRadius)
-                .fill(Color.primary.opacity(0.2))
-                .frame(width: barWidth, height: totalHeight)
-
-            if usage.isOverLimit {
-                overLimitFill
-            } else {
-                normalFill
-            }
-        }
-        .frame(width: barWidth, height: totalHeight)
-    }
-
-    private var totalHeight: CGFloat {
-        if usage.isOverLimit {
-            let overshoot = min(usage.overageFraction, 1.0) * barHeight
-            return barHeight + overshoot
-        }
-        return barHeight
-    }
-
-    // MARK: - Normal
-
-    private var normalFill: some View {
-        let filledHeight = CGFloat(usage.normalFraction) * barHeight
-        return VStack(spacing: 0) {
-            Spacer(minLength: 0)
-            RoundedRectangle(cornerRadius: cornerRadius)
-                .fill(normalColor)
-                .frame(width: barWidth, height: filledHeight)
-        }
-    }
-
-    // MARK: - Over Limit
-
-    private var overLimitFill: some View {
-        let overshootHeight = CGFloat(min(usage.overageFraction, 1.0)) * barHeight
-
-        return VStack(spacing: 0) {
-            // Red overshoot portion (top)
-            UnevenRoundedRectangle(
-                topLeadingRadius: cornerRadius,
-                bottomLeadingRadius: 0,
-                bottomTrailingRadius: 0,
-                topTrailingRadius: cornerRadius
-            )
-            .fill(Color.red)
-            .frame(width: barWidth, height: overshootHeight)
-
-            // Orange normal portion (bottom, full)
-            UnevenRoundedRectangle(
-                topLeadingRadius: 0,
-                bottomLeadingRadius: cornerRadius,
-                bottomTrailingRadius: cornerRadius,
-                topTrailingRadius: 0
-            )
-            .fill(Color.orange)
-            .frame(width: barWidth, height: barHeight)
-        }
-    }
-
-    private var normalColor: Color {
-        let fraction = usage.normalFraction
-        if fraction < 0.6 {
-            return .green
-        } else if fraction < 0.85 {
-            return .yellow
-        } else {
-            return .orange
-        }
+        Image(nsImage: MenuBarImageRenderer.render(usage: usage))
     }
 }
 

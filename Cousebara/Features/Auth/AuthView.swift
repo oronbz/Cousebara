@@ -1,12 +1,12 @@
+import ComposableArchitecture
 import SwiftUI
 
-struct SetupView: View {
-    let authService: GitHubAuthService
-    let onAuthenticated: () -> Void
+struct AuthView: View {
+    let store: StoreOf<AuthFeature>
 
     var body: some View {
         VStack(spacing: 12) {
-            switch authService.phase {
+            switch store.phase {
             case .idle:
                 idleView
             case .awaitingUser(let code, let verificationURL):
@@ -33,13 +33,15 @@ struct SetupView: View {
                 .font(.subheadline)
                 .fontWeight(.medium)
 
-            Text("Sign in with your GitHub account to start monitoring your Copilot premium usage.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+            Text(
+                "Sign in with your GitHub account to start monitoring your Copilot premium usage."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
 
             Button {
-                authService.startAuthentication()
+                store.send(.signInButtonTapped)
             } label: {
                 Label("Sign in with GitHub", systemImage: "arrow.right.circle")
             }
@@ -93,7 +95,7 @@ struct SetupView: View {
             }
 
             Button("Cancel") {
-                authService.reset()
+                store.send(.cancelButtonTapped)
             }
             .buttonStyle(.plain)
             .font(.caption)
@@ -117,12 +119,6 @@ struct SetupView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
-        .onAppear {
-            // Brief delay so the user sees the success state, then trigger refresh
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                onAuthenticated()
-            }
-        }
     }
 
     // MARK: - Error
@@ -139,7 +135,7 @@ struct SetupView: View {
                 .multilineTextAlignment(.center)
 
             Button("Try Again") {
-                authService.startAuthentication()
+                store.send(.tryAgainButtonTapped)
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
@@ -150,19 +146,37 @@ struct SetupView: View {
 // MARK: - Previews
 
 #Preview("Idle - Needs Auth") {
-    PopoverView(service: .previewNeedsAuth)
+    PopoverView(
+        store: Store(initialState: PopoverFeature.State(
+            auth: AuthFeature.State(),
+            error: "GitHub Copilot token file not found. Sign in to create it.",
+            needsAuth: true
+        )) {
+            PopoverFeature()
+        }
+    )
 }
 
 #Preview("Awaiting User") {
-    let auth = GitHubAuthService()
-    SetupView(authService: auth, onAuthenticated: {})
-        .padding()
-        .frame(width: 280)
+    AuthView(
+        store: Store(initialState: AuthFeature.State(
+            phase: .awaitingUser(code: "ABCD-1234", verificationURL: "https://github.com/login/device")
+        )) {
+            AuthFeature()
+        }
+    )
+    .padding()
+    .frame(width: 280)
 }
 
 #Preview("Error") {
-    let auth = GitHubAuthService()
-    SetupView(authService: auth, onAuthenticated: {})
-        .padding()
-        .frame(width: 280)
+    AuthView(
+        store: Store(initialState: AuthFeature.State(
+            phase: .error("Failed to start GitHub authentication.")
+        )) {
+            AuthFeature()
+        }
+    )
+    .padding()
+    .frame(width: 280)
 }

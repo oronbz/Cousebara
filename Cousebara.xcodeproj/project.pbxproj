@@ -6,8 +6,23 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		82D7CCEF2F4E44E000E085B7 /* ComposableArchitecture in Frameworks */ = {isa = PBXBuildFile; productRef = 82D7CCEE2F4E44E000E085B7 /* ComposableArchitecture */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		82D7CCF82F4E452400E085B7 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8279A13B2F4DE849008C2F93 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 8279A1422F4DE849008C2F93;
+			remoteInfo = Cousebara;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		8279A1432F4DE849008C2F93 /* Cousebara.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Cousebara.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		82D7CCF42F4E452400E085B7 /* CousebaraTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CousebaraTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -16,10 +31,23 @@
 			path = Cousebara;
 			sourceTree = "<group>";
 		};
+		82D7CCF52F4E452400E085B7 /* CousebaraTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = CousebaraTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		8279A1402F4DE849008C2F93 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				82D7CCEF2F4E44E000E085B7 /* ComposableArchitecture in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		82D7CCF12F4E452400E085B7 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -33,6 +61,7 @@
 			isa = PBXGroup;
 			children = (
 				8279A1452F4DE849008C2F93 /* Cousebara */,
+				82D7CCF52F4E452400E085B7 /* CousebaraTests */,
 				8279A1442F4DE849008C2F93 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,6 +70,7 @@
 			isa = PBXGroup;
 			children = (
 				8279A1432F4DE849008C2F93 /* Cousebara.app */,
+				82D7CCF42F4E452400E085B7 /* CousebaraTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -65,10 +95,34 @@
 			);
 			name = Cousebara;
 			packageProductDependencies = (
+				82D7CCEE2F4E44E000E085B7 /* ComposableArchitecture */,
 			);
 			productName = Cousebara;
 			productReference = 8279A1432F4DE849008C2F93 /* Cousebara.app */;
 			productType = "com.apple.product-type.application";
+		};
+		82D7CCF32F4E452400E085B7 /* CousebaraTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 82D7CCFA2F4E452400E085B7 /* Build configuration list for PBXNativeTarget "CousebaraTests" */;
+			buildPhases = (
+				82D7CCF02F4E452400E085B7 /* Sources */,
+				82D7CCF12F4E452400E085B7 /* Frameworks */,
+				82D7CCF22F4E452400E085B7 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				82D7CCF92F4E452400E085B7 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				82D7CCF52F4E452400E085B7 /* CousebaraTests */,
+			);
+			name = CousebaraTests;
+			packageProductDependencies = (
+			);
+			productName = CousebaraTests;
+			productReference = 82D7CCF42F4E452400E085B7 /* CousebaraTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
 
@@ -83,6 +137,10 @@
 					8279A1422F4DE849008C2F93 = {
 						CreatedOnToolsVersion = 26.3;
 					};
+					82D7CCF32F4E452400E085B7 = {
+						CreatedOnToolsVersion = 26.3;
+						TestTargetID = 8279A1422F4DE849008C2F93;
+					};
 				};
 			};
 			buildConfigurationList = 8279A13E2F4DE849008C2F93 /* Build configuration list for PBXProject "Cousebara" */;
@@ -94,18 +152,29 @@
 			);
 			mainGroup = 8279A13A2F4DE849008C2F93;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				82D7CCED2F4E44E000E085B7 /* XCRemoteSwiftPackageReference "swift-composable-architecture" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 8279A1442F4DE849008C2F93 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
 				8279A1422F4DE849008C2F93 /* Cousebara */,
+				82D7CCF32F4E452400E085B7 /* CousebaraTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		8279A1412F4DE849008C2F93 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		82D7CCF22F4E452400E085B7 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -122,7 +191,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		82D7CCF02F4E452400E085B7 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		82D7CCF92F4E452400E085B7 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 8279A1422F4DE849008C2F93 /* Cousebara */;
+			targetProxy = 82D7CCF82F4E452400E085B7 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		8279A14C2F4DE84A008C2F93 /* Debug */ = {
@@ -253,7 +337,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 87FKPT2W7R;
+				DEVELOPMENT_TEAM = WZ8GG366SX;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
@@ -270,7 +354,7 @@
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
@@ -285,7 +369,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 87FKPT2W7R;
+				DEVELOPMENT_TEAM = WZ8GG366SX;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
@@ -302,10 +386,52 @@
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		82D7CCFB2F4E452400E085B7 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = WZ8GG366SX;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = bz.oron.CousebaraTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Cousebara.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Cousebara";
+			};
+			name = Debug;
+		};
+		82D7CCFC2F4E452400E085B7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = WZ8GG366SX;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = bz.oron.CousebaraTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Cousebara.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Cousebara";
 			};
 			name = Release;
 		};
@@ -330,7 +456,35 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		82D7CCFA2F4E452400E085B7 /* Build configuration list for PBXNativeTarget "CousebaraTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				82D7CCFB2F4E452400E085B7 /* Debug */,
+				82D7CCFC2F4E452400E085B7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		82D7CCED2F4E44E000E085B7 /* XCRemoteSwiftPackageReference "swift-composable-architecture" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/pointfreeco/swift-composable-architecture";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.24.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		82D7CCEE2F4E44E000E085B7 /* ComposableArchitecture */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 82D7CCED2F4E44E000E085B7 /* XCRemoteSwiftPackageReference "swift-composable-architecture" */;
+			productName = ComposableArchitecture;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 8279A13B2F4DE849008C2F93 /* Project object */;
 }

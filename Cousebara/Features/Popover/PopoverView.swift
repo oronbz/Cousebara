@@ -1,27 +1,24 @@
+import ComposableArchitecture
+import Sharing
 import SwiftUI
 
 struct PopoverView: View {
-    let service: CopilotService
-    @AppStorage("showPercentageInMenuBar") private var showPercentage = false
-    @State private var authService = GitHubAuthService()
+    @Bindable var store: StoreOf<PopoverFeature>
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             header
             Divider()
 
-            if service.needsAuth {
-                SetupView(authService: authService) {
-                    authService.reset()
-                    Task { await service.refresh() }
-                }
+            if let authStore = store.scope(state: \.auth, action: \.auth.presented) {
+                AuthView(store: authStore)
                 Divider()
                 quitButton
-            } else if let error = service.error {
+            } else if let error = store.error, !store.needsAuth {
                 errorView(error)
                 Divider()
                 quitButton
-            } else if let usage = service.usage {
+            } else if let usage = store.usage {
                 usageSection(usage)
                 Divider()
                 detailsSection(usage)
@@ -35,9 +32,6 @@ struct PopoverView: View {
         }
         .padding(16)
         .frame(width: 280)
-        .task {
-            await service.refresh()
-        }
     }
 
     // MARK: - Header
@@ -53,7 +47,7 @@ struct PopoverView: View {
                 Text("Copilot Premium Usage")
                     .font(.headline)
 
-                if let login = service.login, let plan = service.plan {
+                if let login = store.login, let plan = store.plan {
                     Text("\(login) - \(plan)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -62,7 +56,7 @@ struct PopoverView: View {
 
             Spacer()
 
-            if service.isLoading {
+            if store.isLoading {
                 ProgressView()
                     .controlSize(.small)
             }
@@ -121,7 +115,7 @@ struct PopoverView: View {
                 detailRow("Remaining", value: "\(usage.remaining)")
             }
 
-            if let resetDate = service.resetDate {
+            if let resetDate = store.resetDate {
                 detailRow("Resets", value: formattedResetDate(resetDate))
             }
         }
@@ -152,7 +146,11 @@ struct PopoverView: View {
         displayFormatter.dateStyle = .medium
 
         let calendar = Calendar.current
-        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: .now), to: calendar.startOfDay(for: date)).day ?? 0
+        let days = calendar.dateComponents(
+            [.day],
+            from: calendar.startOfDay(for: .now),
+            to: calendar.startOfDay(for: date)
+        ).day ?? 0
 
         let dateStr = displayFormatter.string(from: date)
         if days > 0 {
@@ -177,7 +175,7 @@ struct PopoverView: View {
                 .multilineTextAlignment(.center)
 
             Button("Retry") {
-                Task { await service.refresh() }
+                store.send(.retryButtonTapped)
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
@@ -202,7 +200,7 @@ struct PopoverView: View {
     // MARK: - Settings
 
     private var settingsSection: some View {
-        Toggle("Show Percentage in Menu Bar", isOn: $showPercentage)
+        Toggle("Show Percentage in Menu Bar", isOn: $store.showPercentage)
             .font(.caption)
             .toggleStyle(.switch)
             .controlSize(.mini)
@@ -212,7 +210,7 @@ struct PopoverView: View {
 
     private var footerSection: some View {
         HStack {
-            if let lastUpdated = service.lastUpdated {
+            if let lastUpdated = store.lastUpdated {
                 Text("Updated \(lastUpdated.formatted(.relative(presentation: .named)))")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
@@ -221,13 +219,13 @@ struct PopoverView: View {
             Spacer()
 
             Button("Refresh") {
-                Task { await service.refresh() }
+                store.send(.refreshButtonTapped)
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
 
             Button("Quit") {
-                NSApplication.shared.terminate(nil)
+                store.send(.quitButtonTapped)
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
@@ -240,7 +238,7 @@ struct PopoverView: View {
         HStack {
             Spacer()
             Button("Quit") {
-                NSApplication.shared.terminate(nil)
+                store.send(.quitButtonTapped)
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
@@ -309,44 +307,130 @@ struct PopoverProgressBar: View {
         } else {
             .orange
         }
-        return LinearGradient(colors: [color.opacity(0.8), color], startPoint: .leading, endPoint: .trailing)
+        return LinearGradient(
+            colors: [color.opacity(0.8), color],
+            startPoint: .leading,
+            endPoint: .trailing
+        )
     }
 }
 
 // MARK: - Previews
 
+private func makeCopilotResponse(
+    usage: QuotaSnapshot
+) -> CopilotUserResponse {
+    CopilotUserResponse(
+        login: "oronbz",
+        copilotPlan: "enterprise",
+        quotaResetDate: "2026-03-01",
+        quotaSnapshots: QuotaSnapshots(premiumInteractions: usage)
+    )
+}
+
 #Preview("Low Usage (30%)") {
-    PopoverView(service: .previewLowUsage)
+    PopoverView(
+        store: Store(initialState: PopoverFeature.State()) {
+            PopoverFeature()
+        } withDependencies: {
+            let response = makeCopilotResponse(usage: .lowUsage)
+            $0[CopilotAPIClient.self].readToken = { "mock-token" }
+            $0[CopilotAPIClient.self].fetchUsage = { _ in response }
+        }
+    )
 }
 
 #Preview("Medium Usage (65%)") {
-    PopoverView(service: .previewMediumUsage)
+    PopoverView(
+        store: Store(initialState: PopoverFeature.State()) {
+            PopoverFeature()
+        } withDependencies: {
+            let response = makeCopilotResponse(usage: .mediumUsage)
+            $0[CopilotAPIClient.self].readToken = { "mock-token" }
+            $0[CopilotAPIClient.self].fetchUsage = { _ in response }
+        }
+    )
 }
 
 #Preview("High Usage (90%)") {
-    PopoverView(service: .previewHighUsage)
+    PopoverView(
+        store: Store(initialState: PopoverFeature.State()) {
+            PopoverFeature()
+        } withDependencies: {
+            let response = makeCopilotResponse(usage: .highUsage)
+            $0[CopilotAPIClient.self].readToken = { "mock-token" }
+            $0[CopilotAPIClient.self].fetchUsage = { _ in response }
+        }
+    )
 }
 
 #Preview("At Limit (100%)") {
-    PopoverView(service: .previewAtLimit)
+    PopoverView(
+        store: Store(initialState: PopoverFeature.State()) {
+            PopoverFeature()
+        } withDependencies: {
+            let response = makeCopilotResponse(usage: .atLimit)
+            $0[CopilotAPIClient.self].readToken = { "mock-token" }
+            $0[CopilotAPIClient.self].fetchUsage = { _ in response }
+        }
+    )
 }
 
 #Preview("Slightly Over (110%)") {
-    PopoverView(service: .previewSlightlyOver)
+    PopoverView(
+        store: Store(initialState: PopoverFeature.State()) {
+            PopoverFeature()
+        } withDependencies: {
+            let response = makeCopilotResponse(usage: .slightlyOver)
+            $0[CopilotAPIClient.self].readToken = { "mock-token" }
+            $0[CopilotAPIClient.self].fetchUsage = { _ in response }
+        }
+    )
 }
 
 #Preview("Over Limit (154%)") {
-    PopoverView(service: .previewOverLimit)
+    PopoverView(
+        store: Store(initialState: PopoverFeature.State()) {
+            PopoverFeature()
+        } withDependencies: {
+            let response = makeCopilotResponse(usage: .overLimit)
+            $0[CopilotAPIClient.self].readToken = { "mock-token" }
+            $0[CopilotAPIClient.self].fetchUsage = { _ in response }
+        }
+    )
 }
 
 #Preview("Loading") {
-    PopoverView(service: .previewLoading)
+    PopoverView(
+        store: Store(initialState: PopoverFeature.State()) {
+            PopoverFeature()
+        } withDependencies: {
+            $0[CopilotAPIClient.self].readToken = { "mock-token" }
+            $0[CopilotAPIClient.self].fetchUsage = { _ in
+                try await Task.sleep(for: .seconds(999))
+                throw CancellationError()
+            }
+        }
+    )
 }
 
 #Preview("Error") {
-    PopoverView(service: .previewError)
+    PopoverView(
+        store: Store(initialState: PopoverFeature.State()) {
+            PopoverFeature()
+        } withDependencies: {
+            $0[CopilotAPIClient.self].readToken = { "mock-token" }
+            $0[CopilotAPIClient.self].fetchUsage = { _ in throw CopilotError.apiError }
+        }
+    )
 }
 
 #Preview("Needs Auth") {
-    PopoverView(service: .previewNeedsAuth)
+    PopoverView(
+        store: Store(initialState: PopoverFeature.State()) {
+            PopoverFeature()
+        } withDependencies: {
+            $0[CopilotAPIClient.self].readToken = { throw CopilotError.tokenFileMissing }
+        }
+    )
 }

@@ -8,6 +8,7 @@ struct VersionClient: Sendable {
     var currentVersion: @Sendable () -> String = { "0.0.0" }
     var fetchLatestRelease: @Sendable () async throws -> GitHubRelease
     var copyUpdateCommand: @Sendable () -> Void
+    var onDiskVersion: @Sendable () -> String? = { nil }
 }
 
 extension VersionClient: TestDependencyKey {
@@ -17,7 +18,8 @@ extension VersionClient: TestDependencyKey {
             fetchLatestRelease: {
                 GitHubRelease(tagName: "v99.0.0", htmlUrl: "https://github.com/oronbz/cousebara/releases/latest")
             },
-            copyUpdateCommand: {}
+            copyUpdateCommand: {},
+            onDiskVersion: { "0.0.0" }
         )
     }
 }
@@ -50,6 +52,15 @@ extension VersionClient: DependencyKey {
                 let pasteboard = NSPasteboard.general
                 pasteboard.clearContents()
                 pasteboard.setString("brew update && brew upgrade --cask cousebara", forType: .string)
+            },
+            onDiskVersion: {
+                let plistURL = Bundle.main.bundleURL
+                    .appendingPathComponent("Contents")
+                    .appendingPathComponent("Info.plist")
+                guard let data = try? Data(contentsOf: plistURL),
+                      let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+                else { return nil }
+                return plist["CFBundleShortVersionString"] as? String
             }
         )
     }

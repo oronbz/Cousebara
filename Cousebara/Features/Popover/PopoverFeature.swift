@@ -25,6 +25,7 @@ struct PopoverFeature {
     enum Action: BindableAction {
         case auth(PresentationAction<AuthFeature.Action>)
         case binding(BindingAction<State>)
+        case bundleVersionCheckTicked
         case copiedConfirmationDismissed
         case onAppLaunch
         case onAppear
@@ -38,6 +39,7 @@ struct PopoverFeature {
     }
 
     enum CancelID {
+        case bundleMonitor
         case copiedConfirmation
         case timer
     }
@@ -64,13 +66,29 @@ struct PopoverFeature {
             case .binding:
                 return .none
 
+            case .bundleVersionCheckTicked:
+                if let currentVersion = state.currentVersion,
+                   let diskVersion = versionClient.onDiskVersion(),
+                   diskVersion != currentVersion {
+                    return .run { _ in appTerminator.relaunch() }
+                }
+                return .none
+
             case .copiedConfirmationDismissed:
                 state.showCopiedConfirmation = false
                 return .none
 
             case .onAppLaunch:
                 state.currentVersion = versionClient.currentVersion()
-                return refreshAndRestartTimer(state: &state)
+                return .merge(
+                    refreshAndRestartTimer(state: &state),
+                    .run { send in
+                        for await _ in clock.timer(interval: .seconds(15)) {
+                            await send(.bundleVersionCheckTicked)
+                        }
+                    }
+                    .cancellable(id: CancelID.bundleMonitor, cancelInFlight: true)
+                )
 
             case .onAppear:
                 return refreshAndRestartTimer(state: &state)

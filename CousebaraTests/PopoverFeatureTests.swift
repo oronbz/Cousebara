@@ -32,9 +32,14 @@ struct PopoverFeatureTests {
             $0[CopilotAPIClient.self].fetchUsage = { _ in response }
             $0[VersionClient.self].currentVersion = { "1.4.0" }
             $0[VersionClient.self].fetchLatestRelease = { currentRelease }
+            $0[VersionClient.self].onDiskVersion = { "1.4.0" }
             $0.continuousClock = clock
             $0.date = .constant(fixedDate)
         }
+
+        // Non-exhaustive because advancing 15 minutes also triggers
+        // the 30-second bundle version check timer multiple times
+        store.exhaustivity = .off
 
         await store.send(.onAppLaunch) {
             $0.currentVersion = "1.4.0"
@@ -65,7 +70,7 @@ struct PopoverFeatureTests {
 
         await store.receive(\.versionCheckResponse.success)
 
-        // Timer is still running, cancel it
+        // Timers are still running, cancel them
         await store.skipInFlightEffects()
     }
 
@@ -326,10 +331,11 @@ struct PopoverFeatureTests {
             $0[CopilotAPIClient.self].fetchUsage = { _ in response }
             $0[VersionClient.self].currentVersion = { "1.4.0" }
             $0[VersionClient.self].fetchLatestRelease = { newerRelease }
+            $0[VersionClient.self].onDiskVersion = { "1.4.0" }
             $0.continuousClock = clock
             $0.date = .constant(fixedDate)
         }
-        
+
         store.exhaustivity = .off
 
         await store.send(.onAppLaunch) {
@@ -415,6 +421,61 @@ struct PopoverFeatureTests {
         await store.receive(\.copiedConfirmationDismissed) {
             $0.showCopiedConfirmation = false
         }
+    }
+
+    // MARK: - Auto-Relaunch Tests
+
+    @Test func bundleVersionCheck_differentVersion_relaunches() async {
+        var relaunchCalled = false
+
+        let store = TestStore(
+            initialState: PopoverFeature.State(currentVersion: "1.4.0")
+        ) {
+            PopoverFeature()
+        } withDependencies: {
+            $0[VersionClient.self].onDiskVersion = { "1.5.0" }
+            $0[AppTerminator.self].relaunch = { relaunchCalled = true }
+        }
+
+        await store.send(.bundleVersionCheckTicked)
+
+        #expect(relaunchCalled)
+    }
+
+    @Test func bundleVersionCheck_sameVersion_doesNotRelaunch() async {
+        let store = TestStore(
+            initialState: PopoverFeature.State(currentVersion: "1.4.0")
+        ) {
+            PopoverFeature()
+        } withDependencies: {
+            $0[VersionClient.self].onDiskVersion = { "1.4.0" }
+        }
+
+        await store.send(.bundleVersionCheckTicked)
+    }
+
+    @Test func bundleVersionCheck_nilDiskVersion_doesNotRelaunch() async {
+        let store = TestStore(
+            initialState: PopoverFeature.State(currentVersion: "1.4.0")
+        ) {
+            PopoverFeature()
+        } withDependencies: {
+            $0[VersionClient.self].onDiskVersion = { nil }
+        }
+
+        await store.send(.bundleVersionCheckTicked)
+    }
+
+    @Test func bundleVersionCheck_nilCurrentVersion_doesNotRelaunch() async {
+        let store = TestStore(
+            initialState: PopoverFeature.State(currentVersion: nil)
+        ) {
+            PopoverFeature()
+        } withDependencies: {
+            $0[VersionClient.self].onDiskVersion = { "1.5.0" }
+        }
+
+        await store.send(.bundleVersionCheckTicked)
     }
 
     @Test func versionCheck_newerAvailable_setsAvailableUpdate() async {

@@ -28,11 +28,13 @@ brew update && brew upgrade --cask cousebara
 ## Requirements
 
 - macOS 14.0 (Sonoma) or later
-- A GitHub Copilot subscription with a token configured at `~/.config/github-copilot/apps.json` (automatically created by VS Code, Neovim, or JetBrains Copilot plugins)
+- A GitHub Copilot subscription
 
 ## How It Works
 
-Cousebara reads your Copilot OAuth token from `~/.config/github-copilot/apps.json` and calls the `https://api.github.com/copilot_internal/user` endpoint to fetch your `premium_interactions` quota snapshot. No additional login is required.
+On first launch, Cousebara checks for an existing Copilot OAuth token at `~/.config/github-copilot/apps.json`. If one is found (e.g., from VS Code, Neovim, or JetBrains Copilot plugins), usage data loads immediately -- no extra login needed.
+
+If no token is found, Cousebara walks you through a quick GitHub sign-in using the Device Flow: you get a one-time code, authorize on github.com in your browser, and the app saves the token to `apps.json` automatically.
 
 ### Progress Bar Colors
 

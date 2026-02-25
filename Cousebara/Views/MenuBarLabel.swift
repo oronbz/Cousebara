@@ -21,7 +21,7 @@ struct MenuBarLabel: View {
                 .scaledToFit()
                 .frame(height: 16)
 
-            if let usage {
+            if !showPercentage, let usage {
                 MenuBarProgressBar(usage: usage)
             }
         }

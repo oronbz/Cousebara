@@ -24,6 +24,10 @@ struct PopoverView: View {
                 detailsSection(usage)
                 Divider()
                 settingsSection
+                if store.availableUpdate != nil {
+                    Divider()
+                    updateBanner
+                }
                 Divider()
                 footerSection
             } else {
@@ -32,6 +36,9 @@ struct PopoverView: View {
         }
         .padding(16)
         .frame(width: 280)
+        .onAppear {
+            store.send(.popoverAppeared)
+        }
     }
 
     // MARK: - Header
@@ -206,14 +213,66 @@ struct PopoverView: View {
             .controlSize(.mini)
     }
 
+    // MARK: - Update Banner
+
+    private var updateBanner: some View {
+        HStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.up.circle.fill")
+                    .foregroundStyle(.blue)
+                    .font(.body)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    if let version = store.availableUpdate {
+                        Text("Update available: v\(version)")
+                            .font(.caption)
+                            .fontWeight(.medium)
+                    }
+                    Text("Paste in Terminal")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer(minLength: 0)
+
+            Button {
+                store.send(.updateBannerTapped)
+            } label: {
+                HStack(spacing: 3) {
+                    if store.showCopiedConfirmation {
+                        Image(systemName: "checkmark")
+                        Text("Copied!")
+                    } else {
+                        Image(systemName: "doc.on.doc")
+                        Text("Copy")
+                    }
+                }
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .tint(store.showCopiedConfirmation ? .green : nil)
+        }
+        .padding(8)
+        .background(Color.blue.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
     // MARK: - Footer
 
     private var footerSection: some View {
         HStack {
-            if let lastUpdated = store.lastUpdated {
-                Text("Updated \(lastUpdated.formatted(.relative(presentation: .named)))")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+            VStack(alignment: .leading, spacing: 2) {
+                if let lastUpdated = store.lastUpdated {
+                    let versionPrefix = if let v = store.currentVersion { "v\(v) · " } else { "" }
+                    (Text("\(versionPrefix) ") + Text("Updated \(lastUpdated.formatted(.relative(presentation: .named)))"))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                } else if let version = store.currentVersion {
+                    Text("v\(version)")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
             }
 
             Spacer()
@@ -317,85 +376,65 @@ struct PopoverProgressBar: View {
 
 // MARK: - Previews
 
-private func makeCopilotResponse(
-    usage: QuotaSnapshot
-) -> CopilotUserResponse {
-    CopilotUserResponse(
+private func makePreviewState(
+    usage: QuotaSnapshot,
+    availableUpdate: String? = nil
+) -> PopoverFeature.State {
+    PopoverFeature.State(
+        availableUpdate: availableUpdate,
+        currentVersion: "1.4.0",
+        lastUpdated: Date(),
         login: "oronbz",
-        copilotPlan: "enterprise",
-        quotaResetDate: "2026-03-01",
-        quotaSnapshots: QuotaSnapshots(premiumInteractions: usage)
+        plan: "enterprise",
+        resetDate: "2026-03-01",
+        usage: usage
     )
 }
 
 #Preview("Low Usage (30%)") {
     PopoverView(
-        store: Store(initialState: PopoverFeature.State()) {
+        store: Store(initialState: makePreviewState(usage: .lowUsage)) {
             PopoverFeature()
-        } withDependencies: {
-            let response = makeCopilotResponse(usage: .lowUsage)
-            $0[CopilotAPIClient.self].readToken = { "mock-token" }
-            $0[CopilotAPIClient.self].fetchUsage = { _ in response }
         }
     )
 }
 
 #Preview("Medium Usage (65%)") {
     PopoverView(
-        store: Store(initialState: PopoverFeature.State()) {
+        store: Store(initialState: makePreviewState(usage: .mediumUsage)) {
             PopoverFeature()
-        } withDependencies: {
-            let response = makeCopilotResponse(usage: .mediumUsage)
-            $0[CopilotAPIClient.self].readToken = { "mock-token" }
-            $0[CopilotAPIClient.self].fetchUsage = { _ in response }
         }
     )
 }
 
 #Preview("High Usage (90%)") {
     PopoverView(
-        store: Store(initialState: PopoverFeature.State()) {
+        store: Store(initialState: makePreviewState(usage: .highUsage)) {
             PopoverFeature()
-        } withDependencies: {
-            let response = makeCopilotResponse(usage: .highUsage)
-            $0[CopilotAPIClient.self].readToken = { "mock-token" }
-            $0[CopilotAPIClient.self].fetchUsage = { _ in response }
         }
     )
 }
 
 #Preview("At Limit (100%)") {
     PopoverView(
-        store: Store(initialState: PopoverFeature.State()) {
+        store: Store(initialState: makePreviewState(usage: .atLimit)) {
             PopoverFeature()
-        } withDependencies: {
-            let response = makeCopilotResponse(usage: .atLimit)
-            $0[CopilotAPIClient.self].readToken = { "mock-token" }
-            $0[CopilotAPIClient.self].fetchUsage = { _ in response }
         }
     )
 }
 
 #Preview("Slightly Over (110%)") {
     PopoverView(
-        store: Store(initialState: PopoverFeature.State()) {
+        store: Store(initialState: makePreviewState(usage: .slightlyOver)) {
             PopoverFeature()
-        } withDependencies: {
-            let response = makeCopilotResponse(usage: .slightlyOver)
-            $0[CopilotAPIClient.self].readToken = { "mock-token" }
-            $0[CopilotAPIClient.self].fetchUsage = { _ in response }
         }
     )
 }
 
 #Preview("Over Limit (154%)") {
     PopoverView(
-        store: Store(initialState: PopoverFeature.State()) {
+        store: Store(initialState: makePreviewState(usage: .overLimit)) {
             PopoverFeature()
-        } withDependencies: {
-            let response = makeCopilotResponse(usage: .overLimit)
-            $0[CopilotAPIClient.self].readToken = { "mock-token" }
-            $0[CopilotAPIClient.self].fetchUsage = { _ in response }
         }
     )
 }
@@ -404,33 +443,46 @@ private func makeCopilotResponse(
     PopoverView(
         store: Store(initialState: PopoverFeature.State()) {
             PopoverFeature()
-        } withDependencies: {
-            $0[CopilotAPIClient.self].readToken = { "mock-token" }
-            $0[CopilotAPIClient.self].fetchUsage = { _ in
-                try await Task.sleep(for: .seconds(999))
-                throw CancellationError()
-            }
         }
     )
 }
 
 #Preview("Error") {
     PopoverView(
-        store: Store(initialState: PopoverFeature.State()) {
+        store: Store(
+            initialState: PopoverFeature.State(
+                currentVersion: "1.4.0",
+                error: CopilotError.apiError.localizedDescription
+            )
+        ) {
             PopoverFeature()
-        } withDependencies: {
-            $0[CopilotAPIClient.self].readToken = { "mock-token" }
-            $0[CopilotAPIClient.self].fetchUsage = { _ in throw CopilotError.apiError }
         }
     )
 }
 
 #Preview("Needs Auth") {
     PopoverView(
-        store: Store(initialState: PopoverFeature.State()) {
+        store: Store(
+            initialState: PopoverFeature.State(
+                auth: AuthFeature.State(),
+                error: CopilotError.tokenFileMissing.localizedDescription,
+                needsAuth: true
+            )
+        ) {
             PopoverFeature()
-        } withDependencies: {
-            $0[CopilotAPIClient.self].readToken = { throw CopilotError.tokenFileMissing }
+        }
+    )
+}
+
+#Preview("Update Available") {
+    PopoverView(
+        store: Store(
+            initialState: makePreviewState(
+                usage: .mediumUsage,
+                availableUpdate: "1.5.0"
+            )
+        ) {
+            PopoverFeature()
         }
     )
 }

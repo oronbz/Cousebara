@@ -17,6 +17,11 @@ struct PopoverFeatureTests {
         )
     )
 
+    let currentRelease = GitHubRelease(
+        tagName: "v1.4.0",
+        htmlUrl: "https://github.com/oronbz/cousebara/releases/tag/v1.4.0"
+    )
+
     @Test func onAppLaunch_fetchesUsageAndStartsTimer() async {
         let clock = TestClock()
 
@@ -25,11 +30,14 @@ struct PopoverFeatureTests {
         } withDependencies: {
             $0[CopilotAPIClient.self].readToken = { "mock-token" }
             $0[CopilotAPIClient.self].fetchUsage = { _ in response }
+            $0[VersionClient.self].currentVersion = { "1.4.0" }
+            $0[VersionClient.self].fetchLatestRelease = { currentRelease }
             $0.continuousClock = clock
             $0.date = .constant(fixedDate)
         }
 
         await store.send(.onAppLaunch) {
+            $0.currentVersion = "1.4.0"
             $0.isLoading = true
         }
 
@@ -42,6 +50,8 @@ struct PopoverFeatureTests {
             $0.lastUpdated = fixedDate
         }
 
+        await store.receive(\.versionCheckResponse.success)
+
         // Advance clock by 15 minutes to trigger timer tick
         await clock.advance(by: .seconds(15 * 60))
 
@@ -53,7 +63,55 @@ struct PopoverFeatureTests {
             $0.isLoading = false
         }
 
+        await store.receive(\.versionCheckResponse.success)
+
         // Timer is still running, cancel it
+        await store.skipInFlightEffects()
+    }
+
+    @Test func popoverAppeared_fetchesUsageAndRestartsTimer() async {
+        let clock = TestClock()
+
+        let store = TestStore(
+            initialState: PopoverFeature.State(currentVersion: "1.4.0")
+        ) {
+            PopoverFeature()
+        } withDependencies: {
+            $0[CopilotAPIClient.self].readToken = { "mock-token" }
+            $0[CopilotAPIClient.self].fetchUsage = { _ in response }
+            $0[VersionClient.self].fetchLatestRelease = { currentRelease }
+            $0.continuousClock = clock
+            $0.date = .constant(fixedDate)
+        }
+
+        await store.send(.popoverAppeared) {
+            $0.isLoading = true
+        }
+
+        await store.receive(\.usageResponse.success) {
+            $0.isLoading = false
+            $0.login = "testuser"
+            $0.plan = "enterprise"
+            $0.resetDate = "2026-03-01"
+            $0.usage = .mediumUsage
+            $0.lastUpdated = fixedDate
+        }
+
+        await store.receive(\.versionCheckResponse.success)
+
+        // Timer is running — verify it ticks
+        await clock.advance(by: .seconds(15 * 60))
+
+        await store.receive(\.timerTicked) {
+            $0.isLoading = true
+        }
+
+        await store.receive(\.usageResponse.success) {
+            $0.isLoading = false
+        }
+
+        await store.receive(\.versionCheckResponse.success)
+
         await store.skipInFlightEffects()
     }
 
@@ -249,5 +307,130 @@ struct PopoverFeatureTests {
         await store.send(.quitButtonTapped)
 
         #expect(terminateCalled)
+    }
+
+    // MARK: - Version Check Tests
+
+    @Test func versionCheck_newerAvailable_showsBanner() async {
+        let newerRelease = GitHubRelease(
+            tagName: "v1.5.0",
+            htmlUrl: "https://github.com/oronbz/cousebara/releases/tag/v1.5.0"
+        )
+
+        let clock = TestClock()
+
+        let store = TestStore(initialState: PopoverFeature.State()) {
+            PopoverFeature()
+        } withDependencies: {
+            $0[CopilotAPIClient.self].readToken = { "mock-token" }
+            $0[CopilotAPIClient.self].fetchUsage = { _ in response }
+            $0[VersionClient.self].currentVersion = { "1.4.0" }
+            $0[VersionClient.self].fetchLatestRelease = { newerRelease }
+            $0.continuousClock = clock
+            $0.date = .constant(fixedDate)
+        }
+        
+        store.exhaustivity = .off
+
+        await store.send(.onAppLaunch) {
+            $0.currentVersion = "1.4.0"
+            $0.isLoading = true
+        }
+
+        await store.receive(\.usageResponse.success) {
+            $0.isLoading = false
+            $0.login = "testuser"
+            $0.plan = "enterprise"
+            $0.resetDate = "2026-03-01"
+            $0.usage = .mediumUsage
+            $0.lastUpdated = fixedDate
+        }
+
+        await store.receive(\.versionCheckResponse.success) {
+            $0.availableUpdate = "1.5.0"
+        }
+
+        await store.skipInFlightEffects()
+    }
+
+    @Test func versionCheck_upToDate_noBanner() async {
+        let store = TestStore(
+            initialState: PopoverFeature.State(currentVersion: "1.4.0")
+        ) {
+            PopoverFeature()
+        }
+
+        await store.send(.versionCheckResponse(.success(currentRelease)))
+    }
+
+    @Test func versionCheck_olderRelease_noBanner() async {
+        let olderRelease = GitHubRelease(
+            tagName: "v1.3.0",
+            htmlUrl: "https://github.com/oronbz/cousebara/releases/tag/v1.3.0"
+        )
+
+        let store = TestStore(
+            initialState: PopoverFeature.State(currentVersion: "1.4.0")
+        ) {
+            PopoverFeature()
+        }
+
+        await store.send(.versionCheckResponse(.success(olderRelease)))
+    }
+
+    @Test func versionCheck_failure_silentlyIgnored() async {
+        let store = TestStore(
+            initialState: PopoverFeature.State(currentVersion: "1.4.0")
+        ) {
+            PopoverFeature()
+        }
+
+        await store.send(.versionCheckResponse(.failure(VersionError.fetchFailed)))
+    }
+
+    @Test func updateBannerTapped_copiesToClipboard() async {
+        let clock = TestClock()
+        var copyCalled = false
+
+        let store = TestStore(
+            initialState: PopoverFeature.State(
+                availableUpdate: "1.5.0",
+                currentVersion: "1.4.0"
+            )
+        ) {
+            PopoverFeature()
+        } withDependencies: {
+            $0[VersionClient.self].copyUpdateCommand = { copyCalled = true }
+            $0.continuousClock = clock
+        }
+
+        await store.send(.updateBannerTapped) {
+            $0.showCopiedConfirmation = true
+        }
+
+        #expect(copyCalled)
+
+        await clock.advance(by: .seconds(2))
+
+        await store.receive(\.copiedConfirmationDismissed) {
+            $0.showCopiedConfirmation = false
+        }
+    }
+
+    @Test func versionCheck_newerAvailable_setsAvailableUpdate() async {
+        let newerRelease = GitHubRelease(
+            tagName: "v2.0.0",
+            htmlUrl: "https://github.com/oronbz/cousebara/releases/tag/v2.0.0"
+        )
+
+        let store = TestStore(
+            initialState: PopoverFeature.State(currentVersion: "1.4.0")
+        ) {
+            PopoverFeature()
+        }
+
+        await store.send(.versionCheckResponse(.success(newerRelease))) {
+            $0.availableUpdate = "2.0.0"
+        }
     }
 }

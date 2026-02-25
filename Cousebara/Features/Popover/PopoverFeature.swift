@@ -7,6 +7,8 @@ struct PopoverFeature {
     @ObservableState
     struct State: Equatable {
         @Presents var auth: AuthFeature.State?
+        var availableUpdate: String?
+        var currentVersion: String?
         var error: String?
         var isLoading = false
         var lastUpdated: Date?
@@ -14,6 +16,7 @@ struct PopoverFeature {
         var needsAuth = false
         var plan: String?
         var resetDate: String?
+        var showCopiedConfirmation = false
         @Shared(.appStorage("showPercentageInMenuBar")) var showPercentage = false
         var usage: QuotaSnapshot?
     }
@@ -21,15 +24,20 @@ struct PopoverFeature {
     enum Action: BindableAction {
         case auth(PresentationAction<AuthFeature.Action>)
         case binding(BindingAction<State>)
+        case copiedConfirmationDismissed
         case onAppLaunch
+        case popoverAppeared
         case quitButtonTapped
         case refreshButtonTapped
         case retryButtonTapped
         case timerTicked
+        case updateBannerTapped
         case usageResponse(Result<CopilotUserResponse, any Error>)
+        case versionCheckResponse(Result<GitHubRelease, any Error>)
     }
 
     enum CancelID {
+        case copiedConfirmation
         case timer
     }
 
@@ -37,6 +45,7 @@ struct PopoverFeature {
     @Dependency(AppTerminator.self) var appTerminator
     @Dependency(\.continuousClock) var clock
     @Dependency(\.date.now) var now
+    @Dependency(VersionClient.self) var versionClient
 
     var body: some ReducerOf<Self> {
         BindingReducer()
@@ -54,16 +63,16 @@ struct PopoverFeature {
             case .binding:
                 return .none
 
+            case .copiedConfirmationDismissed:
+                state.showCopiedConfirmation = false
+                return .none
+
             case .onAppLaunch:
-                return .merge(
-                    fetchUsage(state: &state),
-                    .run { send in
-                        for await _ in clock.timer(interval: .seconds(15 * 60)) {
-                            await send(.timerTicked)
-                        }
-                    }
-                    .cancellable(id: CancelID.timer)
-                )
+                state.currentVersion = versionClient.currentVersion()
+                return refreshAndRestartTimer(state: &state)
+
+            case .popoverAppeared:
+                return refreshAndRestartTimer(state: &state)
 
             case .quitButtonTapped:
                 return .run { _ in appTerminator.terminate() }
@@ -75,7 +84,19 @@ struct PopoverFeature {
                 return fetchUsage(state: &state)
 
             case .timerTicked:
-                return fetchUsage(state: &state)
+                return .merge(
+                    fetchUsage(state: &state),
+                    checkForUpdates()
+                )
+
+            case .updateBannerTapped:
+                versionClient.copyUpdateCommand()
+                state.showCopiedConfirmation = true
+                return .run { send in
+                    try await clock.sleep(for: .seconds(2))
+                    await send(.copiedConfirmationDismissed)
+                }
+                .cancellable(id: CancelID.copiedConfirmation, cancelInFlight: true)
 
             case .usageResponse(.success(let response)):
                 state.isLoading = false
@@ -99,6 +120,19 @@ struct PopoverFeature {
                     state.needsAuth = false
                 }
                 return .none
+
+            case .versionCheckResponse(.success(let release)):
+                if let currentVersion = state.currentVersion,
+                   release.isNewer(than: currentVersion)
+                {
+                    state.availableUpdate = release.version
+                } else {
+                    state.availableUpdate = nil
+                }
+                return .none
+
+            case .versionCheckResponse(.failure):
+                return .none
             }
         }
         .ifLet(\.$auth, action: \.auth) {
@@ -107,6 +141,16 @@ struct PopoverFeature {
     }
 
     // MARK: - Private
+
+    private func checkForUpdates() -> Effect<Action> {
+        .run { send in
+            await send(
+                .versionCheckResponse(
+                    Result { try await versionClient.fetchLatestRelease() }
+                )
+            )
+        }
+    }
 
     private func fetchUsage(state: inout State) -> Effect<Action> {
         state.isLoading = true
@@ -120,5 +164,18 @@ struct PopoverFeature {
                 )
             )
         }
+    }
+
+    private func refreshAndRestartTimer(state: inout State) -> Effect<Action> {
+        .merge(
+            fetchUsage(state: &state),
+            checkForUpdates(),
+            .run { send in
+                for await _ in clock.timer(interval: .seconds(15 * 60)) {
+                    await send(.timerTicked)
+                }
+            }
+            .cancellable(id: CancelID.timer, cancelInFlight: true)
+        )
     }
 }

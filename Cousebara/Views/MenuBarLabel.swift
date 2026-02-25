@@ -12,7 +12,7 @@ struct MenuBarLabel: View {
     private var menuBarImage: NSImage {
         let content = HStack(alignment: .center, spacing: 3) {
             if showPercentage, let usage {
-                Text("\(Int(usage.percentUsed))%")
+                Text("\(Int(usage.percentUsed.rounded()))%")
                     .font(.system(size: 12, weight: .medium, design: .default).monospacedDigit())
             }
 

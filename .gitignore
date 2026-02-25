@@ -24,6 +24,3 @@ Packages/
 
 # Archives
 *.xcarchive
-
-# Claude Code
-.claude/

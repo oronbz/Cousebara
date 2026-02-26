@@ -358,14 +358,13 @@ struct PopoverProgressBar: View {
     }
 
     private func overLimitFill(totalWidth: CGFloat, height: CGFloat) -> some View {
-        let normalWidth = totalWidth * (1.0 / (1.0 + min(usage.overageFraction, 1.0)))
-        let overshootWidth = totalWidth - normalWidth
+        let overshootWidth = totalWidth * min(usage.overageFraction, 1.0)
 
-        return HStack(spacing: 0) {
-            // Normal portion (up to 100%)
+        return ZStack(alignment: .trailing) {
+            // Normal portion
             Rectangle()
                 .fill(Color.orange)
-                .frame(width: normalWidth, height: height)
+                .frame(width: totalWidth, height: height)
 
             // Overshoot portion
             Rectangle()

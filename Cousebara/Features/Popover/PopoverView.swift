@@ -400,20 +400,10 @@ struct PopoverProgressBar: View {
     }
 
     private func overLimitFill(totalWidth: CGFloat, height: CGFloat) -> some View {
-        let overshootWidth = totalWidth * min(usage.overageFraction, 1.0)
-
-        return ZStack(alignment: .trailing) {
-            // Normal portion
-            Rectangle()
-                .fill(Color.orange)
-                .frame(width: totalWidth, height: height)
-
-            // Overshoot portion
-            Rectangle()
+        Rectangle()
                 .fill(Color.red)
-                .frame(width: overshootWidth, height: height)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+                .frame(width: totalWidth, height: height)
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
     }
 
     private var normalGradient: LinearGradient {

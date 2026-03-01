@@ -371,8 +371,11 @@ struct PopoverProgressBar: View {
                 }
 
                 // Pace tick mark
-                if !showRemaining, let pace = paceReserve {
-                    let tickX = totalWidth * CGFloat(pace.percentTimeElapsed / 100)
+                if let pace = paceReserve {
+                    let tickFraction = CGFloat(pace.percentTimeElapsed / 100)
+                    let tickX = showRemaining
+                        ? totalWidth * (1 - tickFraction)
+                        : totalWidth * tickFraction
                     Rectangle()
                         .fill(Color.primary.opacity(0.6))
                         .frame(width: 1.5, height: height + 4)

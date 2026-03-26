@@ -499,11 +499,14 @@ struct PopoverFeatureTests {
             PopoverFeature()
         } withDependencies: {
             $0[LaunchAtLoginClient.self].setEnabled = { _ in }
+            $0[LaunchAtLoginClient.self].isEnabled = { true }
         }
 
         await store.send(.launchAtLoginToggled(true)) {
             $0.launchAtLogin = true
         }
+
+        await store.receive(\.launchAtLoginLoaded)
     }
 
     @Test func launchAtLoginToggled_disablesSuccessfully() async {
@@ -511,11 +514,14 @@ struct PopoverFeatureTests {
             PopoverFeature()
         } withDependencies: {
             $0[LaunchAtLoginClient.self].setEnabled = { _ in }
+            $0[LaunchAtLoginClient.self].isEnabled = { false }
         }
 
         await store.send(.launchAtLoginToggled(false)) {
             $0.launchAtLogin = false
         }
+
+        await store.receive(\.launchAtLoginLoaded)
     }
 
     @Test func launchAtLoginToggled_failureRevertsState() async {

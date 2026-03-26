@@ -240,13 +240,20 @@ struct PopoverView: View {
 
     private var settingsSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Toggle("Show Percentage in Menu Bar", isOn: $store.showPercentage)
+            Toggle("Show Percentage in Menu Bar", isOn: Binding(store.$showPercentage))
                 .font(.caption)
                 .toggleStyle(.checkbox)
 
-            Toggle("Show Remaining Instead of Used", isOn: $store.showRemaining)
+            Toggle("Show Remaining Instead of Used", isOn: Binding(store.$showRemaining))
                 .font(.caption)
                 .toggleStyle(.checkbox)
+
+            Toggle("Launch at Login", isOn: Binding(
+                get: { store.launchAtLogin },
+                set: { store.send(.launchAtLoginToggled($0)) }
+            ))
+            .font(.caption)
+            .toggleStyle(.checkbox)
         }
     }
 

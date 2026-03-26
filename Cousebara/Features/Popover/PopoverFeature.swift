@@ -20,6 +20,7 @@ struct PopoverFeature {
         var showCopiedConfirmation = false
         @Shared(.appStorage("showPercentageInMenuBar")) var showPercentage = false
         @Shared(.appStorage("showRemainingInsteadOfUsed")) var showRemaining = false
+        var launchAtLogin = true
         var usage: QuotaSnapshot?
     }
 
@@ -28,6 +29,8 @@ struct PopoverFeature {
         case binding(BindingAction<State>)
         case bundleVersionCheckTicked
         case copiedConfirmationDismissed
+        case launchAtLoginLoaded(Bool)
+        case launchAtLoginToggled(Bool)
         case onAppLaunch
         case onAppear
         case quitButtonTapped
@@ -48,6 +51,7 @@ struct PopoverFeature {
     @Dependency(CopilotAPIClient.self) var apiClient
     @Dependency(AppTerminator.self) var appTerminator
     @Dependency(\.continuousClock) var clock
+    @Dependency(LaunchAtLoginClient.self) var launchAtLoginClient
     @Dependency(\.date.now) var now
     @Dependency(VersionClient.self) var versionClient
 
@@ -79,6 +83,18 @@ struct PopoverFeature {
                 state.showCopiedConfirmation = false
                 return .none
 
+            case .launchAtLoginLoaded(let isEnabled):
+                state.launchAtLogin = isEnabled
+                return .none
+
+            case .launchAtLoginToggled(let isEnabled):
+                state.launchAtLogin = isEnabled
+                return .run { send in
+                    try? launchAtLoginClient.setEnabled(isEnabled)
+                    let actualState = launchAtLoginClient.isEnabled()
+                    await send(.launchAtLoginLoaded(actualState))
+                }
+
             case .onAppLaunch:
                 state.currentVersion = versionClient.currentVersion()
                 return .merge(
@@ -88,7 +104,18 @@ struct PopoverFeature {
                             await send(.bundleVersionCheckTicked)
                         }
                     }
-                    .cancellable(id: CancelID.bundleMonitor, cancelInFlight: true)
+                    .cancellable(id: CancelID.bundleMonitor, cancelInFlight: true),
+                    .run { send in
+                        @Shared(.appStorage("hasSetUpLaunchAtLogin")) var hasSetUp = false
+                        if !hasSetUp {
+                            $hasSetUp.withLock { $0 = true }
+                            if !launchAtLoginClient.isEnabled() {
+                                try? launchAtLoginClient.setEnabled(true)
+                            }
+                        }
+                        let isEnabled = launchAtLoginClient.isEnabled()
+                        await send(.launchAtLoginLoaded(isEnabled))
+                    }
                 )
 
             case .onAppear:

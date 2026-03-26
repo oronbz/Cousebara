@@ -33,6 +33,8 @@ struct PopoverFeatureTests {
             $0[VersionClient.self].currentVersion = { "1.4.0" }
             $0[VersionClient.self].fetchLatestRelease = { currentRelease }
             $0[VersionClient.self].onDiskVersion = { "1.4.0" }
+            $0[LaunchAtLoginClient.self].isEnabled = { true }
+            $0[LaunchAtLoginClient.self].setEnabled = { _ in }
             $0.continuousClock = clock
             $0.date = .constant(fixedDate)
         }
@@ -340,6 +342,8 @@ struct PopoverFeatureTests {
             $0[VersionClient.self].currentVersion = { "1.4.0" }
             $0[VersionClient.self].fetchLatestRelease = { newerRelease }
             $0[VersionClient.self].onDiskVersion = { "1.4.0" }
+            $0[LaunchAtLoginClient.self].isEnabled = { true }
+            $0[LaunchAtLoginClient.self].setEnabled = { _ in }
             $0.continuousClock = clock
             $0.date = .constant(fixedDate)
         }
@@ -484,6 +488,55 @@ struct PopoverFeatureTests {
         }
 
         await store.send(.bundleVersionCheckTicked)
+    }
+
+    // MARK: - Launch at Login Tests
+
+    @Test func launchAtLoginToggled_enablesSuccessfully() async {
+        let store = TestStore(
+            initialState: PopoverFeature.State(launchAtLogin: false)
+        ) {
+            PopoverFeature()
+        } withDependencies: {
+            $0[LaunchAtLoginClient.self].setEnabled = { _ in }
+        }
+
+        await store.send(.launchAtLoginToggled(true)) {
+            $0.launchAtLogin = true
+        }
+    }
+
+    @Test func launchAtLoginToggled_disablesSuccessfully() async {
+        let store = TestStore(initialState: PopoverFeature.State()) {
+            PopoverFeature()
+        } withDependencies: {
+            $0[LaunchAtLoginClient.self].setEnabled = { _ in }
+        }
+
+        await store.send(.launchAtLoginToggled(false)) {
+            $0.launchAtLogin = false
+        }
+    }
+
+    @Test func launchAtLoginToggled_failureRevertsState() async {
+        struct RegistrationError: Error {}
+
+        let store = TestStore(
+            initialState: PopoverFeature.State(launchAtLogin: false)
+        ) {
+            PopoverFeature()
+        } withDependencies: {
+            $0[LaunchAtLoginClient.self].setEnabled = { _ in throw RegistrationError() }
+            $0[LaunchAtLoginClient.self].isEnabled = { false }
+        }
+
+        await store.send(.launchAtLoginToggled(true)) {
+            $0.launchAtLogin = true
+        }
+
+        await store.receive(\.launchAtLoginLoaded) {
+            $0.launchAtLogin = false
+        }
     }
 
     @Test func versionCheck_newerAvailable_setsAvailableUpdate() async {

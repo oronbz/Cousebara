@@ -104,8 +104,8 @@ struct PopoverView: View {
                 .frame(height: 10)
 
             HStack {
-                if let resetsAt = window.resetsAt {
-                    Text("Resets \(resetsAt.formatted(.relative(presentation: .named)))")
+                if let text = resetText(window) {
+                    Text(text)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -133,6 +133,23 @@ struct PopoverView: View {
         store.showRemaining
             ? String(format: "%.0f%% left", window.percentRemaining)
             : String(format: "%.0f%% used", window.percentUsed)
+    }
+
+    /// "Resets in 2h 14m" for the session (hours + minutes) and
+    /// "Resets in 3d 5h" for the weekly window (days + hours).
+    private func resetText(_ window: UsageWindow) -> String? {
+        guard let resetsAt = window.resetsAt else { return nil }
+        let interval = resetsAt.timeIntervalSince(Date())
+        guard interval > 0 else { return "Resets now" }
+
+        let formatter = DateComponentsFormatter()
+        formatter.unitsStyle = .abbreviated
+        formatter.maximumUnitCount = 2
+        formatter.allowedUnits = window.length >= UsageWindow.weeklyLength
+            ? [.day, .hour]
+            : [.hour, .minute]
+        guard let formatted = formatter.string(from: interval) else { return nil }
+        return "Resets in \(formatted)"
     }
 
     // MARK: - Needs Login

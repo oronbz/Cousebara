@@ -42,31 +42,77 @@ extension ClaudeAPIClient: TestDependencyKey {
 
 extension ClaudeAPIClient: DependencyKey {
     static var liveValue: ClaudeAPIClient {
-        ClaudeAPIClient(
+        // Cache the access token in memory so we only read the Keychain (which can
+        // trigger the macOS permission prompt) about once per token lifetime (~8h)
+        // instead of on every fetch. Claude Code may recreate its Keychain item
+        // when it rotates tokens roughly hourly, which resets the item's ACL and
+        // re-triggers the prompt; by reusing our still-valid token we skip those
+        // reads entirely. The 15-minute refresh timer keeps updating the menu bar
+        // from the cache without touching the Keychain.
+        let cache = TokenCache()
+        return ClaudeAPIClient(
             readToken: {
+                if let cached = cache.current() { return cached }
+
                 let data = try readKeychainCredentials()
                 let creds = try JSONDecoder().decode(ClaudeCredentials.self, from: data)
-                if let expiresAt = creds.claudeAiOauth.expiresAt {
-                    let nowMs = Date().timeIntervalSince1970 * 1000
-                    if expiresAt <= nowMs { throw ClaudeError.tokenExpired }
+                let expiresAt = creds.claudeAiOauth.expiresAt.map {
+                    Date(timeIntervalSince1970: $0 / 1000)
                 }
+                if let expiresAt, expiresAt <= Date() { throw ClaudeError.tokenExpired }
+                cache.store(creds.claudeAiOauth.accessToken, expiresAt: expiresAt)
                 return creds.claudeAiOauth.accessToken
             },
             fetchUsage: { token in
                 let url = try claudeURL("https://api.anthropic.com/api/oauth/usage")
                 let (data, response) = try await authedGet(url, token: token)
-                try validate(response)
+                try validate(response, onAuthFailure: cache.clear)
                 let decoded = try JSONDecoder().decode(ClaudeUsageResponse.self, from: data)
                 return ClaudeUsage(response: decoded)
             },
             fetchProfile: { token in
                 let url = try claudeURL("https://api.anthropic.com/api/oauth/profile")
                 let (data, response) = try await authedGet(url, token: token)
-                try validate(response)
+                try validate(response, onAuthFailure: cache.clear)
                 let decoded = try JSONDecoder().decode(ClaudeProfileResponse.self, from: data)
                 return ClaudeProfile(response: decoded)
             }
         )
+    }
+}
+
+// MARK: - Token Cache
+
+/// Thread-safe in-memory cache for the OAuth access token, so background
+/// refreshes can reuse a valid token without re-reading the Keychain.
+private final class TokenCache: @unchecked Sendable {
+    private let lock = NSLock()
+    private var token: String?
+    private var expiresAt: Date?
+
+    /// The cached token, but only if it is still valid for at least `margin`
+    /// seconds (avoids handing back a token that expires mid-request).
+    func current(margin: TimeInterval = 60) -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let token, let expiresAt, expiresAt.timeIntervalSinceNow > margin else {
+            return nil
+        }
+        return token
+    }
+
+    func store(_ token: String, expiresAt: Date?) {
+        lock.lock()
+        defer { lock.unlock() }
+        self.token = token
+        self.expiresAt = expiresAt
+    }
+
+    func clear() {
+        lock.lock()
+        defer { lock.unlock() }
+        token = nil
+        expiresAt = nil
     }
 }
 
@@ -135,9 +181,12 @@ private func authedGet(_ url: URL, token: String) async throws -> (Data, URLResp
     return try await URLSession.shared.data(for: request)
 }
 
-private func validate(_ response: URLResponse) throws {
+private func validate(_ response: URLResponse, onAuthFailure: () -> Void = {}) throws {
     guard let http = response as? HTTPURLResponse else { throw ClaudeError.apiError }
     if http.statusCode == 401 || http.statusCode == 403 {
+        // The cached token was rejected (likely revoked by a Claude Code rotation).
+        // Drop it so the next read pulls a fresh token from the Keychain.
+        onAuthFailure()
         throw ClaudeError.authenticationFailed
     }
     guard http.statusCode == 200 else { throw ClaudeError.apiError }

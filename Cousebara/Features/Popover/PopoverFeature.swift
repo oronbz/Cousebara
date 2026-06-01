@@ -6,26 +6,23 @@ import Sharing
 struct PopoverFeature {
     @ObservableState
     struct State: Equatable {
-        @Presents var auth: AuthFeature.State?
         var availableUpdate: String?
         var currentVersion: String?
         var error: String?
         var isLoading = false
         var lastUpdated: Date?
-        var login: String?
-        var needsAuth = false
-        var paceReserve: PaceReserve?
-        var plan: String?
-        var resetDate: String?
+        var needsLogin = false
+        var profile: ClaudeProfile?
+        var session: UsageWindow?
         var showCopiedConfirmation = false
         @Shared(.appStorage("showPercentageInMenuBar")) var showPercentage = false
         @Shared(.appStorage("showRemainingInsteadOfUsed")) var showRemaining = false
         var launchAtLogin = true
-        var usage: QuotaSnapshot?
+        var weekly: UsageWindow?
+        var weeklyPace: PaceReserve?
     }
 
     enum Action: BindableAction {
-        case auth(PresentationAction<AuthFeature.Action>)
         case binding(BindingAction<State>)
         case bundleVersionCheckTicked
         case copiedConfirmationDismissed
@@ -33,12 +30,13 @@ struct PopoverFeature {
         case launchAtLoginToggled(Bool)
         case onAppLaunch
         case onAppear
+        case profileResponse(Result<ClaudeProfile, any Error>)
         case quitButtonTapped
         case refreshButtonTapped
         case retryButtonTapped
         case timerTicked
         case updateBannerTapped
-        case usageResponse(Result<CopilotUserResponse, any Error>)
+        case usageResponse(Result<ClaudeUsage, any Error>)
         case versionCheckResponse(Result<GitHubRelease, any Error>)
     }
 
@@ -48,7 +46,10 @@ struct PopoverFeature {
         case timer
     }
 
-    @Dependency(CopilotAPIClient.self) var apiClient
+    /// Minimum time between automatic fetches triggered by opening the popover.
+    private static let cacheInterval: TimeInterval = 60
+
+    @Dependency(ClaudeAPIClient.self) var apiClient
     @Dependency(AppTerminator.self) var appTerminator
     @Dependency(\.continuousClock) var clock
     @Dependency(LaunchAtLoginClient.self) var launchAtLoginClient
@@ -60,14 +61,6 @@ struct PopoverFeature {
 
         Reduce { state, action in
             switch action {
-            case .auth(.presented(.delegate(.authenticated))):
-                state.auth = nil
-                state.needsAuth = false
-                return fetchUsage(state: &state)
-
-            case .auth:
-                return .none
-
             case .binding:
                 return .none
 
@@ -119,7 +112,22 @@ struct PopoverFeature {
                 )
 
             case .onAppear:
+                // The popover's onAppear fires on every menu-bar click. Avoid hammering
+                // the rate-limited usage endpoint: reuse cached data if we refreshed within
+                // the last minute. The 15-minute timer and the manual Refresh button are
+                // unaffected and always fetch.
+                if let lastUpdated = state.lastUpdated,
+                   now.timeIntervalSince(lastUpdated) < Self.cacheInterval {
+                    return .none
+                }
                 return refreshAndRestartTimer(state: &state)
+
+            case .profileResponse(.success(let profile)):
+                state.profile = profile
+                return .none
+
+            case .profileResponse(.failure):
+                return .none
 
             case .quitButtonTapped:
                 return .run { _ in appTerminator.terminate() }
@@ -145,42 +153,30 @@ struct PopoverFeature {
                 }
                 .cancellable(id: CancelID.copiedConfirmation, cancelInFlight: true)
 
-            case .usageResponse(.success(let response)):
+            case .usageResponse(.success(let usage)):
                 state.isLoading = false
-                state.usage = response.quotaSnapshots?.premiumInteractions
-                state.login = response.login
-                state.plan = response.copilotPlan
-                state.resetDate = response.quotaResetDate
+                state.session = usage.session
+                state.weekly = usage.weekly
+                state.weeklyPace = usage.weekly.paceReserve(now: now)
                 state.lastUpdated = now
                 state.error = nil
-                state.needsAuth = false
-                if let usage = state.usage, let resetDate = state.resetDate {
-                    state.paceReserve = PaceReserve.calculate(
-                        percentUsed: usage.percentUsed,
-                        resetDateString: resetDate,
-                        now: now
-                    )
-                } else {
-                    state.paceReserve = nil
-                }
+                state.needsLogin = false
                 return .none
 
             case .usageResponse(.failure(let error)):
                 state.isLoading = false
-                if let copilotError = error as? CopilotError, copilotError.isAuthError {
-                    state.error = copilotError.localizedDescription
-                    state.needsAuth = true
-                    state.auth = AuthFeature.State()
+                if let claudeError = error as? ClaudeError, claudeError.isAuthError {
+                    state.error = claudeError.localizedDescription
+                    state.needsLogin = true
                 } else {
                     state.error = error.localizedDescription
-                    state.needsAuth = false
+                    state.needsLogin = false
                 }
                 return .none
 
             case .versionCheckResponse(.success(let release)):
                 if let currentVersion = state.currentVersion,
-                   release.isNewer(than: currentVersion)
-                {
+                   release.isNewer(than: currentVersion) {
                     state.availableUpdate = release.version
                 } else {
                     state.availableUpdate = nil
@@ -190,9 +186,6 @@ struct PopoverFeature {
             case .versionCheckResponse(.failure):
                 return .none
             }
-        }
-        .ifLet(\.$auth, action: \.auth) {
-            AuthFeature()
         }
     }
 
@@ -211,14 +204,14 @@ struct PopoverFeature {
     private func fetchUsage(state: inout State) -> Effect<Action> {
         state.isLoading = true
         return .run { send in
-            await send(
-                .usageResponse(
-                    Result {
-                        let token = try apiClient.readToken()
-                        return try await apiClient.fetchUsage(token)
-                    }
-                )
-            )
+            do {
+                let token = try apiClient.readToken()
+                let usage = try await apiClient.fetchUsage(token)
+                await send(.usageResponse(.success(usage)))
+                await send(.profileResponse(Result { try await apiClient.fetchProfile(token) }))
+            } catch {
+                await send(.usageResponse(.failure(error)))
+            }
         }
     }
 

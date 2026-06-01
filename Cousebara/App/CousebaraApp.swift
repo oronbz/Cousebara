@@ -18,7 +18,8 @@ struct CousebaraApp: App {
             PopoverView(store: store.scope(state: \.popover, action: \.popover))
         } label: {
             MenuBarLabel(
-                usage: store.popover.usage,
+                session: store.popover.session,
+                weekly: store.popover.weekly,
                 showPercentage: store.popover.showPercentage,
                 showRemaining: store.popover.showRemaining
             )

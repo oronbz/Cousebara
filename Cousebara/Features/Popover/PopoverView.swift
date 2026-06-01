@@ -10,18 +10,28 @@ struct PopoverView: View {
             header
             Divider()
 
-            if let authStore = store.scope(state: \.auth, action: \.auth.presented) {
-                AuthView(store: authStore)
+            if store.needsLogin {
+                needsLoginView
                 Divider()
                 quitButton
-            } else if let error = store.error, !store.needsAuth {
+            } else if let error = store.error {
                 errorView(error)
                 Divider()
                 quitButton
-            } else if let usage = store.usage {
-                usageSection(usage)
+            } else if let session = store.session, let weekly = store.weekly {
+                windowSection(
+                    title: "Session",
+                    subtitle: "5-hour window",
+                    window: session,
+                    pace: nil
+                )
                 Divider()
-                detailsSection(usage)
+                windowSection(
+                    title: "Weekly",
+                    subtitle: "7-day window",
+                    window: weekly,
+                    pace: store.weeklyPace
+                )
                 Divider()
                 settingsSection
                 if store.availableUpdate != nil {
@@ -36,169 +46,112 @@ struct PopoverView: View {
         }
         .padding(16)
         .frame(width: 280)
-        .onAppear {
-            store.send(.onAppear)
-        }
+        .onAppear { store.send(.onAppear) }
     }
 
     // MARK: - Header
 
     private var header: some View {
         HStack {
-            Image("github-copilot-icon")
+            Image("ClaudeIcon")
                 .resizable()
                 .scaledToFit()
                 .frame(width: 20, height: 20)
 
             VStack(alignment: .leading, spacing: 1) {
-                Text("Copilot Premium Usage")
+                Text("Cousebara - Claude Usage")
                     .font(.headline)
 
-                if let login = store.login, let plan = store.plan {
-                    Text("\(login) - \(plan)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                if let profile = store.profile {
+                    let name = profile.displayName ?? profile.email ?? ""
+                    let plan = profile.planLabel ?? ""
+                    let line = [name, plan].filter { !$0.isEmpty }.joined(separator: " · ")
+                    if !line.isEmpty {
+                        Text(line)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
 
             Spacer()
 
             if store.isLoading {
-                ProgressView()
-                    .controlSize(.small)
+                ProgressView().controlSize(.small)
             }
         }
     }
 
-    // MARK: - Usage Section
+    // MARK: - Window Section
 
-    private func usageSection(_ usage: QuotaSnapshot) -> some View {
+    private func windowSection(
+        title: String,
+        subtitle: String,
+        window: UsageWindow,
+        pace: PaceReserve?
+    ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Percentage text
-            HStack {
-                Text(usagePercentText(usage))
-                    .font(.system(.title2, design: .rounded, weight: .semibold))
-                    .foregroundStyle(usageColor(usage))
-
+            HStack(alignment: .firstTextBaseline) {
+                Text(title).font(.subheadline).fontWeight(.semibold)
+                Text(subtitle).font(.caption2).foregroundStyle(.secondary)
                 Spacer()
-
-                Text(store.showRemaining
-                    ? "\(usage.remaining) / \(usage.entitlement)"
-                    : "\(usage.used) / \(usage.entitlement)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Text(percentText(window))
+                    .font(.system(.body, design: .rounded, weight: .semibold))
+                    .foregroundStyle(window.level.color)
             }
 
-            // Large progress bar
-            PopoverProgressBar(
-                usage: usage,
-                showRemaining: store.showRemaining,
-                paceReserve: store.paceReserve
-            )
-            .frame(height: 12)
+            WindowProgressBar(window: window, showRemaining: store.showRemaining, pace: pace)
+                .frame(height: 10)
 
-            // Pace reserve indicator
-            if let pace = store.paceReserve {
-                HStack(spacing: 4) {
-                    Image(systemName: pace.isUnderPace
-                        ? "checkmark.circle.fill"
-                        : "exclamationmark.triangle.fill")
+            HStack {
+                if let resetsAt = window.resetsAt {
+                    Text("Resets \(resetsAt.formatted(.relative(presentation: .named)))")
                         .font(.caption2)
-                    Text(String(
-                        format: "%.0f%% %@",
-                        pace.absoluteReserve,
-                        pace.isUnderPace ? "in reserve" : "over pace"
-                    ))
-                    .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                .foregroundStyle(pace.isUnderPace ? .green : .orange)
+                Spacer()
+                if let pace {
+                    HStack(spacing: 3) {
+                        Image(systemName: pace.isUnderPace
+                            ? "checkmark.circle.fill"
+                            : "exclamationmark.triangle.fill")
+                            .font(.caption2)
+                        Text(String(
+                            format: "%.0f%% %@",
+                            pace.absoluteReserve,
+                            pace.isUnderPace ? "under pace" : "over pace"
+                        ))
+                        .font(.caption2)
+                    }
+                    .foregroundStyle(pace.isUnderPace ? .green : .orange)
+                }
             }
         }
     }
 
-    private func usagePercentText(_ usage: QuotaSnapshot) -> String {
-        if store.showRemaining {
-            let percent = usage.percentRemaining
-            return String(format: "%.0f%% remaining", percent)
-        } else {
-            return String(format: "%.0f%% used", usage.percentUsed)
-        }
+    private func percentText(_ window: UsageWindow) -> String {
+        store.showRemaining
+            ? String(format: "%.0f%% left", window.percentRemaining)
+            : String(format: "%.0f%% used", window.percentUsed)
     }
 
-    private func usageColor(_ usage: QuotaSnapshot) -> Color {
-        if usage.isOverLimit { return .red }
-        if usage.normalFraction > 0.85 { return .orange }
-        if usage.normalFraction > 0.6 { return .yellow }
-        return .green
-    }
+    // MARK: - Needs Login
 
-    // MARK: - Details Section
-
-    private func detailsSection(_ usage: QuotaSnapshot) -> some View {
-        VStack(spacing: 6) {
-            detailRow("Entitlement", value: "\(usage.entitlement)")
-            detailRow("Used", value: "\(usage.used)")
-
-            if usage.isOverLimit {
-                detailRow("Over by", value: "\(usage.overageAmount)", color: .red)
-                detailRow("Overage allowed", value: usage.overagePermitted ? "Yes" : "No")
-            } else {
-                detailRow("Remaining", value: "\(usage.remaining)")
-            }
-
-            if let resetDate = store.resetDate {
-                detailRow("Resets", value: formattedResetDate(resetDate))
-            }
-
-            if let pace = store.paceReserve {
-                detailRow(
-                    "Pace",
-                    value: pace.isUnderPace ? "Lasts until reset" : "May exceed limit",
-                    color: pace.isUnderPace ? .green : .orange
-                )
-            }
-        }
-    }
-
-    private func detailRow(_ label: String, value: String, color: Color = .primary) -> some View {
-        HStack {
-            Text(label)
+    private var needsLoginView: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "person.crop.circle.badge.questionmark")
+                .font(.title2)
+                .foregroundStyle(.secondary)
+            Text("Log in with Claude Code first, then Refresh.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Spacer()
-            Text(value)
-                .font(.caption)
-                .fontWeight(.medium)
-                .foregroundStyle(color)
+                .multilineTextAlignment(.center)
+            Button("Refresh") { store.send(.retryButtonTapped) }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
         }
-    }
-
-    private func formattedResetDate(_ dateString: String) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-
-        guard let date = formatter.date(from: dateString) else {
-            return dateString
-        }
-
-        let displayFormatter = DateFormatter()
-        displayFormatter.dateStyle = .medium
-
-        let calendar = Calendar.current
-        let days = calendar.dateComponents(
-            [.day],
-            from: calendar.startOfDay(for: .now),
-            to: calendar.startOfDay(for: date)
-        ).day ?? 0
-
-        let dateStr = displayFormatter.string(from: date)
-        if days > 0 {
-            return "\(dateStr) (in \(days) days)"
-        } else if days == 0 {
-            return "\(dateStr) (today)"
-        } else {
-            return dateStr
-        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
     }
 
     // MARK: - Error
@@ -212,12 +165,9 @@ struct PopoverView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-
-            Button("Retry") {
-                store.send(.retryButtonTapped)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            Button("Retry") { store.send(.retryButtonTapped) }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 8)
@@ -309,7 +259,7 @@ struct PopoverView: View {
             VStack(alignment: .leading, spacing: 2) {
                 if let lastUpdated = store.lastUpdated {
                     let versionPrefix = if let v = store.currentVersion { "v\(v) · " } else { "" }
-                    (Text("\(versionPrefix) ") + Text("Updated \(lastUpdated.formatted(.relative(presentation: .named)))"))
+                    (Text("\(versionPrefix)") + Text("Updated \(lastUpdated.formatted(.relative(presentation: .named)))"))
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 } else if let version = store.currentVersion {
@@ -321,17 +271,13 @@ struct PopoverView: View {
 
             Spacer()
 
-            Button("Refresh") {
-                store.send(.refreshButtonTapped)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            Button("Refresh") { store.send(.refreshButtonTapped) }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
 
-            Button("Quit") {
-                store.send(.quitButtonTapped)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            Button("Quit") { store.send(.quitButtonTapped) }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
         }
     }
 
@@ -340,21 +286,19 @@ struct PopoverView: View {
     private var quitButton: some View {
         HStack {
             Spacer()
-            Button("Quit") {
-                store.send(.quitButtonTapped)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            Button("Quit") { store.send(.quitButtonTapped) }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
         }
     }
 }
 
-// MARK: - Popover Progress Bar
+// MARK: - Window Progress Bar
 
-struct PopoverProgressBar: View {
-    let usage: QuotaSnapshot
+struct WindowProgressBar: View {
+    let window: UsageWindow
     let showRemaining: Bool
-    var paceReserve: PaceReserve?
+    var pace: PaceReserve?
 
     private let cornerRadius: CGFloat = 4
 
@@ -362,23 +306,19 @@ struct PopoverProgressBar: View {
         GeometryReader { geometry in
             let totalWidth = geometry.size.width
             let height = geometry.size.height
+            let fraction = showRemaining ? window.remainingFraction : window.fraction
+            let fillWidth = CGFloat(fraction) * totalWidth
 
-            ZStack(alignment: .leading) {
-                // Background track
+            ZStack(alignment: showRemaining ? .trailing : .leading) {
                 RoundedRectangle(cornerRadius: cornerRadius)
                     .fill(Color.primary.opacity(0.1))
                     .frame(width: totalWidth, height: height)
 
-                if showRemaining {
-                    remainingFill(totalWidth: totalWidth, height: height)
-                } else if usage.isOverLimit {
-                    overLimitFill(totalWidth: totalWidth, height: height)
-                } else {
-                    normalFill(totalWidth: totalWidth, height: height)
-                }
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .fill(window.level.color)
+                    .frame(width: fillWidth, height: height)
 
-                // Pace tick mark
-                if let pace = paceReserve {
+                if let pace {
                     let tickFraction = CGFloat(pace.percentTimeElapsed / 100)
                     let tickX = showRemaining
                         ? totalWidth * (1 - tickFraction)
@@ -391,130 +331,59 @@ struct PopoverProgressBar: View {
             }
         }
     }
-
-    private func remainingFill(totalWidth: CGFloat, height: CGFloat) -> some View {
-        let fillWidth = CGFloat(usage.remainingFraction) * totalWidth
-        return RoundedRectangle(cornerRadius: cornerRadius)
-            .fill(normalGradient)
-            .frame(width: fillWidth, height: height)
-    }
-
-    private func normalFill(totalWidth: CGFloat, height: CGFloat) -> some View {
-        let fillWidth = CGFloat(max(0, usage.normalFraction)) * totalWidth
-        return RoundedRectangle(cornerRadius: cornerRadius)
-            .fill(normalGradient)
-            .frame(width: fillWidth, height: height)
-    }
-
-    private func overLimitFill(totalWidth: CGFloat, height: CGFloat) -> some View {
-        let overshootWidth = totalWidth * min(usage.overageFraction, 1.0)
-
-        return ZStack(alignment: .trailing) {
-            // Normal portion
-            Rectangle()
-                .fill(Color.orange)
-                .frame(width: totalWidth, height: height)
-
-            // Overshoot portion
-            Rectangle()
-                .fill(Color.red)
-                .frame(width: overshootWidth, height: height)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
-    }
-
-    private var normalGradient: LinearGradient {
-        let fraction = usage.normalFraction
-        let color: Color = if fraction < 0.6 {
-            .green
-        } else if fraction < 0.85 {
-            .yellow
-        } else {
-            .orange
-        }
-        return LinearGradient(
-            colors: [color.opacity(0.8), color],
-            startPoint: .leading,
-            endPoint: .trailing
-        )
-    }
 }
 
 // MARK: - Previews
 
-private func makePreviewResponse(
-    usage: QuotaSnapshot,
-    login: String = "oronbz",
-    plan: String = "enterprise",
-    resetDate: String = "2026-03-15"
-) -> CopilotUserResponse {
-    CopilotUserResponse(
-        login: login,
-        copilotPlan: plan,
-        quotaResetDate: resetDate,
-        quotaSnapshots: QuotaSnapshots(premiumInteractions: usage)
-    )
-}
-
 private func makePreviewStore(
-    usage: QuotaSnapshot,
-    availableUpdate: String? = nil,
-    previewDate: Date = Date()
+    sessionUtil: Double,
+    weeklyUtil: Double,
+    availableUpdate: String? = nil
 ) -> StoreOf<PopoverFeature> {
-    let response = makePreviewResponse(usage: usage)
     var initialState = PopoverFeature.State()
-    if availableUpdate != nil {
-        initialState.currentVersion = "0.0.0"
-    }
+    if availableUpdate != nil { initialState.currentVersion = "0.0.0" }
     return Store(initialState: initialState) {
         PopoverFeature()
     } withDependencies: {
-        $0[CopilotAPIClient.self].readToken = { "preview-token" }
-        $0[CopilotAPIClient.self].fetchUsage = { _ in response }
-        $0.date = .constant(previewDate)
+        $0[ClaudeAPIClient.self].readToken = { "preview-token" }
+        $0[ClaudeAPIClient.self].fetchUsage = { _ in
+            ClaudeUsage(
+                session: UsageWindow(utilization: sessionUtil, resetsAt: Date().addingTimeInterval(2 * 3600), length: UsageWindow.sessionLength),
+                weekly: UsageWindow(utilization: weeklyUtil, resetsAt: Date().addingTimeInterval(4 * 86400), length: UsageWindow.weeklyLength)
+            )
+        }
+        $0[ClaudeAPIClient.self].fetchProfile = { _ in
+            ClaudeProfile(displayName: "Oron", email: "oron@example.com", orgName: "Gett", planLabel: "Max 5X")
+        }
         if let availableUpdate {
             $0[VersionClient.self].currentVersion = { "0.0.0" }
-            $0[VersionClient.self].fetchLatestRelease = {
-                GitHubRelease(tagName: "v\(availableUpdate)", htmlUrl: "")
-            }
+            $0[VersionClient.self].fetchLatestRelease = { GitHubRelease(tagName: "v\(availableUpdate)", htmlUrl: "") }
         }
     }
 }
 
-#Preview("Low Usage (30%)") {
-    PopoverView(store: makePreviewStore(usage: .lowUsage))
+#Preview("Low usage") {
+    PopoverView(store: makePreviewStore(sessionUtil: 25, weeklyUtil: 18))
 }
 
-#Preview("Medium Usage (65%)") {
-    PopoverView(store: makePreviewStore(usage: .mediumUsage))
+#Preview("Mixed usage") {
+    PopoverView(store: makePreviewStore(sessionUtil: 90, weeklyUtil: 55))
 }
 
-#Preview("High Usage (90%)") {
-    PopoverView(store: makePreviewStore(usage: .highUsage))
+#Preview("Maxed session") {
+    PopoverView(store: makePreviewStore(sessionUtil: 100, weeklyUtil: 70))
 }
 
-#Preview("At Limit (100%)") {
-    PopoverView(store: makePreviewStore(usage: .atLimit))
+#Preview("Update available") {
+    PopoverView(store: makePreviewStore(sessionUtil: 40, weeklyUtil: 30, availableUpdate: "2.0.0"))
 }
 
-#Preview("Slightly Over (110%)") {
-    PopoverView(store: makePreviewStore(usage: .slightlyOver))
-}
-
-#Preview("Over Limit (154%)") {
-    PopoverView(store: makePreviewStore(usage: .overLimit))
-}
-
-#Preview("Loading") {
+#Preview("Needs login") {
     PopoverView(
         store: Store(initialState: PopoverFeature.State()) {
             PopoverFeature()
         } withDependencies: {
-            $0[CopilotAPIClient.self].readToken = { "preview-token" }
-            $0[CopilotAPIClient.self].fetchUsage = { _ in
-                try await Task.sleep(for: .seconds(999))
-                return makePreviewResponse(usage: .mediumUsage)
-            }
+            $0[ClaudeAPIClient.self].readToken = { throw ClaudeError.noToken }
         }
     )
 }
@@ -524,30 +393,9 @@ private func makePreviewStore(
         store: Store(initialState: PopoverFeature.State()) {
             PopoverFeature()
         } withDependencies: {
-            $0[CopilotAPIClient.self].readToken = { "preview-token" }
-            $0[CopilotAPIClient.self].fetchUsage = { _ in throw CopilotError.apiError }
+            $0[ClaudeAPIClient.self].readToken = { "preview-token" }
+            $0[ClaudeAPIClient.self].fetchUsage = { _ in throw ClaudeError.apiError }
+            $0[ClaudeAPIClient.self].fetchProfile = { _ in throw ClaudeError.apiError }
         }
     )
 }
-
-#Preview("Needs Auth") {
-    PopoverView(
-        store: Store(initialState: PopoverFeature.State()) {
-            PopoverFeature()
-        } withDependencies: {
-            $0[CopilotAPIClient.self].readToken = { throw CopilotError.tokenFileMissing }
-        }
-    )
-}
-
-#Preview("Update Available") {
-    PopoverView(store: makePreviewStore(usage: .mediumUsage, availableUpdate: "2.0.0"))
-}
-#Preview("Under Pace (30% used, mid-month)") {
-    PopoverView(store: makePreviewStore(usage: .lowUsage))
-}
-
-#Preview("Over Pace (90% used, mid-month)") {
-    PopoverView(store: makePreviewStore(usage: .highUsage))
-}
-

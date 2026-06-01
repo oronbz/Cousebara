@@ -1,154 +1,138 @@
 import AppKit
 import SwiftUI
 
+// MARK: - UsageLevel → Color (shared by menu bar + popover)
+
+extension UsageLevel {
+    var color: Color {
+        switch self {
+        case .normal: .green
+        case .warning: .yellow
+        case .high: .orange
+        case .maxed: .red
+        }
+    }
+}
+
 struct MenuBarLabel: View {
-    let usage: QuotaSnapshot?
+    let session: UsageWindow?
+    let weekly: UsageWindow?
     let showPercentage: Bool
     let showRemaining: Bool
+
+    // The menu bar image is non-template (so the bar colors survive), which means
+    // macOS won't auto-invert the percentage text for dark/light menu bars. Drive
+    // its color from the color scheme instead; changing appearance re-runs `body`
+    // and regenerates the image with the right baked text color.
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         Image(nsImage: menuBarImage)
     }
 
+    /// Utilization of the most-constrained window (highest used / lowest remaining).
+    private var worstUtilization: Double {
+        max(session?.utilization ?? 0, weekly?.utilization ?? 0)
+    }
+
+    private var percentText: String {
+        let value = showRemaining ? max(0, 100 - worstUtilization) : worstUtilization
+        return "\(Int(value.rounded()))%"
+    }
+
     private var menuBarImage: NSImage {
-        let content = HStack(alignment: .center, spacing: 3) {
-            if showPercentage, let usage {
-                Text("\(Int((showRemaining ? usage.percentRemaining : usage.percentUsed).rounded()))%")
-                    .font(.system(size: 12, weight: .medium, design: .default).monospacedDigit())
+        let content = HStack(alignment: .center, spacing: 4) {
+            if showPercentage {
+                Text(percentText)
+                    .font(.system(size: 12, weight: .medium).monospacedDigit())
+                    .foregroundStyle(colorScheme == .dark ? Color.white : Color.black)
+            } else {
+                Image("ClaudeIcon")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(height: 14)
             }
-
-            Image("github-copilot-icon")
-                .resizable()
-                .scaledToFit()
-                .frame(height: 16)
-
-            if !showPercentage, let usage {
-                MenuBarProgressBar(usage: usage, showRemaining: showRemaining)
-            }
+            MenuBarVerticalBar(window: session, showRemaining: showRemaining)
+            MenuBarVerticalBar(window: weekly, showRemaining: showRemaining)
         }
 
         let renderer = ImageRenderer(content: content)
         renderer.scale = NSScreen.main?.backingScaleFactor ?? 2
 
-        guard let cgImage = renderer.cgImage else {
-            return NSImage(named: "github-copilot-icon") ?? NSImage()
-        }
+        guard let cgImage = renderer.cgImage else { return NSImage() }
 
         let image = NSImage(cgImage: cgImage, size: NSSize(
             width: cgImage.width / Int(renderer.scale),
             height: cgImage.height / Int(renderer.scale)
         ))
-        image.isTemplate = true
+        // Colored (not template) so the green/yellow/orange/red signal survives.
+        image.isTemplate = false
         return image
     }
 }
 
-// MARK: - Menu Bar Progress Bar
+// MARK: - Menu Bar Vertical Bar
 
-/// A small vertical progress bar for the menu bar.
-/// Uses opacity to match the template image tinting behavior.
-struct MenuBarProgressBar: View {
-    let usage: QuotaSnapshot
+/// A small vertical bar for the menu bar, filled bottom-up and colored by the
+/// window's usage level.
+struct MenuBarVerticalBar: View {
+    let window: UsageWindow?
     let showRemaining: Bool
 
-    private let barWidth: CGFloat = 10
-    private let barHeight: CGFloat = 18
+    private let barWidth: CGFloat = 5
+    private let barHeight: CGFloat = 16
     private let cornerRadius: CGFloat = 1.5
-    private let fillPadding: CGFloat = 2
 
     var body: some View {
         Canvas { context, size in
-            // Background track
             let trackRect = CGRect(origin: .zero, size: size)
             let trackPath = Path(roundedRect: trackRect, cornerRadius: cornerRadius)
-            context.opacity = 0.30
-            context.fill(trackPath, with: .foreground)
-            context.opacity = 1.0
+            context.fill(trackPath, with: .color(.gray.opacity(0.4)))
 
-            // Fill area (inset by padding)
-            let innerRect = trackRect.insetBy(dx: fillPadding, dy: fillPadding)
-            let fillH = fillFraction * innerRect.height
+            guard let window else { return }
+            // Fill height tracks remaining vs used; color always reflects the
+            // usage level (utilization), matching the popover's progress bar.
+            let fraction = showRemaining ? window.remainingFraction : window.fraction
+            let fillH = CGFloat(fraction) * size.height
             guard fillH > 0 else { return }
 
             let fillRect = CGRect(
-                x: innerRect.minX,
-                y: innerRect.maxY - fillH,
-                width: innerRect.width,
+                x: 0,
+                y: size.height - fillH,
+                width: size.width,
                 height: fillH
             )
-            context.fill(Path(fillRect), with: .foreground)
+            context.fill(
+                Path(roundedRect: fillRect, cornerRadius: cornerRadius),
+                with: .color(window.level.color)
+            )
         }
         .frame(width: barWidth, height: barHeight)
-    }
-
-    private var fillFraction: CGFloat {
-        if showRemaining {
-            CGFloat(usage.remainingFraction)
-        } else if usage.isOverLimit {
-            1.0
-        } else {
-            CGFloat(usage.normalFraction)
-        }
     }
 }
 
 // MARK: - Previews
 
-#Preview("Low Usage (30%)") {
-    MenuBarLabel(usage: .lowUsage, showPercentage: false, showRemaining: false)
-        .padding()
+private func win(_ util: Double, length: TimeInterval = UsageWindow.sessionLength) -> UsageWindow {
+    UsageWindow(utilization: util, resetsAt: Date().addingTimeInterval(3600), length: length)
 }
 
-#Preview("Medium Usage (65%)") {
-    MenuBarLabel(usage: .mediumUsage, showPercentage: false, showRemaining: false)
-        .padding()
+#Preview("Low / Low") {
+    MenuBarLabel(session: win(20), weekly: win(15), showPercentage: false, showRemaining: false).padding()
 }
 
-#Preview("High Usage (90%)") {
-    MenuBarLabel(usage: .highUsage, showPercentage: false, showRemaining: false)
-        .padding()
+#Preview("Session high, Weekly mid") {
+    MenuBarLabel(session: win(90), weekly: win(55), showPercentage: false, showRemaining: false).padding()
 }
 
-#Preview("At Limit (100%)") {
-    MenuBarLabel(usage: .atLimit, showPercentage: false, showRemaining: false)
-        .padding()
+#Preview("With percentage (used)") {
+    MenuBarLabel(session: win(90), weekly: win(55), showPercentage: true, showRemaining: false).padding()
 }
 
-#Preview("Slightly Over (110%)") {
-    MenuBarLabel(usage: .slightlyOver, showPercentage: false, showRemaining: false)
-        .padding()
+#Preview("With percentage (remaining)") {
+    MenuBarLabel(session: win(90), weekly: win(55), showPercentage: true, showRemaining: true).padding()
 }
 
-#Preview("Over Limit (154%)") {
-    MenuBarLabel(usage: .overLimit, showPercentage: false, showRemaining: false)
-        .padding()
-}
-
-#Preview("No Data") {
-    MenuBarLabel(usage: nil, showPercentage: false, showRemaining: false)
-        .padding()
-}
-
-#Preview("With Percentage") {
-    HStack(spacing: 16) {
-        LabeledContent("30%") { MenuBarLabel(usage: .lowUsage, showPercentage: true, showRemaining: false) }
-        LabeledContent("65%") { MenuBarLabel(usage: .mediumUsage, showPercentage: true, showRemaining: false) }
-        LabeledContent("90%") { MenuBarLabel(usage: .highUsage, showPercentage: true, showRemaining: false) }
-        LabeledContent("100%") { MenuBarLabel(usage: .atLimit, showPercentage: true, showRemaining: false) }
-        LabeledContent("154%") { MenuBarLabel(usage: .overLimit, showPercentage: true, showRemaining: false) }
-    }
-    .padding()
-}
-
-#Preview("All States") {
-    HStack(spacing: 16) {
-        LabeledContent("30%") { MenuBarLabel(usage: .lowUsage, showPercentage: false, showRemaining: false) }
-        LabeledContent("65%") { MenuBarLabel(usage: .mediumUsage, showPercentage: false, showRemaining: false) }
-        LabeledContent("90%") { MenuBarLabel(usage: .highUsage, showPercentage: false, showRemaining: false) }
-        LabeledContent("100%") { MenuBarLabel(usage: .atLimit, showPercentage: false, showRemaining: false) }
-        LabeledContent("110%") { MenuBarLabel(usage: .slightlyOver, showPercentage: false, showRemaining: false) }
-        LabeledContent("154%") { MenuBarLabel(usage: .overLimit, showPercentage: false, showRemaining: false) }
-        LabeledContent("N/A") { MenuBarLabel(usage: nil, showPercentage: false, showRemaining: false) }
-    }
-    .padding()
+#Preview("No data") {
+    MenuBarLabel(session: nil, weekly: nil, showPercentage: false, showRemaining: false).padding()
 }

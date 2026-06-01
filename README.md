@@ -5,7 +5,8 @@ A macOS menu bar app for monitoring Claude subscription usage — session (5-hou
 ## Features
 
 - Menu bar shows two color-coded vertical bars: Session (5-hour) and Weekly (7-day)
-- Click to open a popover with per-window usage, reset time, and pace (ahead/behind a linear burn)
+- Optionally show a percentage in the menu bar (otherwise the Claude icon), and switch between "used" and "remaining"
+- Click to open a popover with per-window usage and reset time, plus a weekly pace indicator (ahead of / behind a linear burn)
 - Auto-refresh every 15 minutes + manual refresh
 - Reads your existing Claude Code login — no separate sign-in
 - No Dock icon — lives entirely in the menu bar
